@@ -180,7 +180,7 @@ function SheetBody({
           >
             <X className="size-5" strokeWidth={2.5} />
           </button>
-          <span aria-hidden="true" className="absolute top-2 left-1/2 z-10 h-1.5 w-10 -translate-x-1/2 rounded-full bg-espresso/25" />
+          <span aria-hidden="true" className="pointer-events-none absolute top-2 left-1/2 z-10 h-1.5 w-10 -translate-x-1/2 rounded-full bg-espresso/25" />
           <ProductArt
             imageUrl={product.imageUrl}
             name={product.name}

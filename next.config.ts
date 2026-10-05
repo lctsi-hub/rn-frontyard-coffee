@@ -12,7 +12,19 @@ if (publicSecrets.length > 0) {
   );
 }
 
+// Dev only (`npm run dev:phone`): phones open the dev server by this computer's
+// Wi-Fi address (e.g. 192.168.100.8). Next.js blocks dev resources (hot reload)
+// for any host except localhost unless it's listed here, and the page then
+// never becomes interactive. Only private network ranges are allowed; ignored
+// by production builds.
+const privateNetworkHosts = [
+  "192.168.*.*",
+  "10.*.*.*",
+  ...Array.from({ length: 16 }, (_, i) => `172.${16 + i}.*.*`),
+];
+
 const nextConfig: NextConfig = {
+  allowedDevOrigins: privateNetworkHosts,
   async headers() {
     return [
       {

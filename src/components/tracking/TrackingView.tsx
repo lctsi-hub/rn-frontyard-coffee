@@ -115,7 +115,7 @@ export function TrackingView({ order }: { order: TrackingOrder }) {
                   )}
                 >
                   {done ? <Check className="size-4" strokeWidth={3} /> : <span className="size-2 rounded-full bg-current" />}
-                  {active && <span aria-hidden="true" className="absolute inset-0 animate-ping rounded-full bg-honey/40" />}
+                  {active && <span aria-hidden="true" className="pointer-events-none absolute inset-0 animate-ping rounded-full bg-honey/40" />}
                 </span>
                 <div className="flex min-w-0 flex-1 items-baseline justify-between gap-2 pt-1">
                   <span className={cn("font-semibold", !done && !active && "text-mocha/70")}>
