@@ -17,7 +17,7 @@
 //   app; saved carts refer to products by id.
 // =============================================================================
 import { photoForProduct } from "@/data/menu-photos";
-import type { Addon, Category, Menu, Product, ProductSize } from "@/types/menu";
+import type { Addon, Category, Menu, Product, ProductSize, QuickExtra } from "@/types/menu";
 
 const categories: Category[] = [
   { id: "cat-coffee", slug: "coffee", name: "Coffee", sortOrder: 1 },
@@ -41,6 +41,16 @@ const addons: Addon[] = [
   { id: "addon-kimchi", name: "Kimchi", price: 20, isAvailable: true },
   { id: "addon-extra-meat", name: "Extra Meat", price: 20, isAvailable: true },
   { id: "addon-plain-rice", name: "Plain Rice", price: 15, isAvailable: true },
+];
+
+// Quick Extras: things staff add to an open order on their own (Admin → order →
+// + Add Item, or the one-tap buttons on dine-in orders). The price and Sold out
+// switch come from the add-on each one points to, so change the price above.
+export const quickExtras: QuickExtra[] = [
+  { id: "extra-rice", name: "Extra Rice", addonId: "addon-plain-rice", quickButton: "Rice" },
+  { id: "extra-kimchi", name: "Kimchi", addonId: "addon-kimchi", quickButton: "Kimchi" },
+  { id: "extra-egg", name: "Egg", addonId: "addon-egg" },
+  { id: "extra-cheese-sauce", name: "Cheese Sauce", addonId: "addon-cheese-sauce" },
 ];
 
 // Which add-ons each kind of item offers. Adjust to match how the shop works.

@@ -128,12 +128,43 @@ export type Database = {
           notes: string;
           line_total: number;
           created_at: string;
+          /** Added by migration 20261006120000 (customer = checkout, staff = added later). */
+          source: "customer" | "staff";
+          added_by: string | null;
         };
         Insert: never;
         Update: never;
         Relationships: [
           {
             foreignKeyName: "order_items_order_id_fkey";
+            columns: ["order_id"];
+            isOneToOne: false;
+            referencedRelation: "orders";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      order_adjustments: {
+        Row: {
+          id: number;
+          order_id: string;
+          order_item_id: string;
+          request_id: string;
+          kind: "item_added";
+          description: string;
+          amount: number;
+          previous_total: number;
+          new_total: number;
+          added_by: string | null;
+          added_by_name: string;
+          created_at: string;
+          acknowledged_at: string | null;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "order_adjustments_order_id_fkey";
             columns: ["order_id"];
             isOneToOne: false;
             referencedRelation: "orders";
@@ -184,6 +215,26 @@ export type Database = {
       update_order_status: {
         Args: { p_order_id: string; p_from_status: OrderStatus; p_to_status: OrderStatus };
         Returns: { order_id: string; order_number: string; status: OrderStatus; updated_at: string }[];
+      };
+      add_order_item: {
+        Args: { p_order_id: string; p_request_id: string; p_admin_id: string; p_item: Json };
+        Returns: {
+          order_id: string;
+          order_number: string;
+          table_number: number | null;
+          order_item_id: string;
+          description: string;
+          added_amount: number;
+          previous_total: number;
+          new_subtotal: number;
+          new_delivery_fee: number;
+          new_total: number;
+          is_new: boolean;
+        }[];
+      };
+      acknowledge_order_additions: {
+        Args: { p_order_id: string };
+        Returns: number;
       };
       get_order_tracking: {
         Args: { p_token_hash: string };

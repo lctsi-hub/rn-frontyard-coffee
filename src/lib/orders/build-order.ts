@@ -12,7 +12,7 @@ import {
   paymentMethodsFor,
   quoteDelivery,
 } from "@/lib/checkout";
-import { buildMenuIndex, findMissingChoices, MAX_NOTES_LENGTH, MAX_QUANTITY, priceItem } from "@/lib/pricing";
+import { buildMenuIndex, findMissingChoices, MAX_NOTES_LENGTH, MAX_QUANTITY, priceItem, type MenuIndex } from "@/lib/pricing";
 import { MAX_TABLE_NUMBER } from "@/lib/table";
 import type { Menu } from "@/types/menu";
 import type { OrderType, PaymentMethodId, StoreSettings } from "@/types/order";
@@ -68,6 +68,77 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
 
+export type BuiltItem = { ok: true; item: OrderItemPayload; lineTotal: number };
+
+/**
+ * Rebuild one item from the menu: `raw` is untrusted ({productId, sizeId,
+ * optionIds, addonIds, quantity, notes}); names and prices come from the menu
+ * only. Used by checkout and by staff adding an item to an existing order.
+ */
+export function buildOrderItem(raw: unknown, index: MenuIndex, categoryNames: Map<string, string>): BuiltItem | OrderError {
+  if (!isObject(raw)) return orderError("invalid_item");
+  const productId = str(raw.productId);
+  const sizeId = raw.sizeId === null || raw.sizeId === undefined ? null : str(raw.sizeId);
+  const optionIds = raw.optionIds ?? [];
+  const addonIds = raw.addonIds ?? [];
+  const quantity = raw.quantity;
+  const notes = typeof raw.notes === "string" ? raw.notes.trim() : "";
+
+  if (!isStringArray(optionIds) || !isStringArray(addonIds)) return orderError("invalid_item");
+  if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) {
+    return orderError("invalid_item");
+  }
+  if (notes.length > MAX_NOTES_LENGTH) return orderError("invalid_item");
+
+  const product = index.products.get(productId);
+  if (!product) return orderError("invalid_item");
+  if (!product.isAvailable) return orderError("item_unavailable");
+
+  // Size must be one of the product's sizes (or none when it has none).
+  if (product.sizes.length > 0 ? !product.sizes.some((s) => s.id === sizeId) : sizeId !== null) {
+    return orderError("invalid_item");
+  }
+
+  // Every option must belong to this product, at most one per group.
+  if (new Set(optionIds).size !== optionIds.length) return orderError("invalid_item");
+  const groupsUsed = new Set<string>();
+  for (const optionId of optionIds) {
+    const group = product.variantGroups.find((g) => g.options.some((o) => o.id === optionId));
+    if (!group || groupsUsed.has(group.id)) return orderError("invalid_item");
+    groupsUsed.add(group.id);
+  }
+  if (findMissingChoices(product, { sizeId, optionIds }).length > 0) return orderError("invalid_item");
+
+  // Every add-on must be offered for this product and currently available.
+  if (new Set(addonIds).size !== addonIds.length) return orderError("invalid_item");
+  for (const addonId of addonIds) {
+    const addon = index.addons.get(addonId);
+    if (!addon || !product.addonIds.includes(addonId)) return orderError("invalid_item");
+    if (!addon.isAvailable) return orderError("item_unavailable");
+  }
+
+  const priced = priceItem(index, { productId, sizeId, optionIds, addonIds, quantity, notes });
+  if (!priced || priced.issues.length > 0) return orderError("invalid_item");
+
+  const item: OrderItemPayload = {
+    product_key: product.id,
+    product_name: product.name,
+    category_name: categoryNames.get(product.categoryId) ?? null,
+    size_name: priced.size?.name ?? null,
+    base_price: priced.size?.price ?? product.basePrice,
+    options: priced.options.map(({ group, option }) => ({
+      group: group.name,
+      name: option.name,
+      price_delta: option.priceDelta,
+    })),
+    addons: priced.addons.map((a) => ({ key: a.id, name: a.name, price: a.price })),
+    unit_price: priced.unitPrice,
+    quantity,
+    notes,
+  };
+  return { ok: true, item, lineTotal: priced.lineTotal };
+}
+
 /**
  * Build the order. `input` is whatever the browser sent; it is treated as
  * untrusted and only ids/choices are read from it.
@@ -94,67 +165,10 @@ export function buildOrder(input: unknown, menu: Menu, settings: StoreSettings):
   let subtotal = 0;
 
   for (const raw of input.items) {
-    if (!isObject(raw)) return orderError("invalid_item");
-    const productId = str(raw.productId);
-    const sizeId = raw.sizeId === null || raw.sizeId === undefined ? null : str(raw.sizeId);
-    const optionIds = raw.optionIds ?? [];
-    const addonIds = raw.addonIds ?? [];
-    const quantity = raw.quantity;
-    const notes = typeof raw.notes === "string" ? raw.notes.trim() : "";
-
-    if (!isStringArray(optionIds) || !isStringArray(addonIds)) return orderError("invalid_item");
-    if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) {
-      return orderError("invalid_item");
-    }
-    if (notes.length > MAX_NOTES_LENGTH) return orderError("invalid_item");
-
-    const product = index.products.get(productId);
-    if (!product) return orderError("invalid_item");
-    if (!product.isAvailable) return orderError("item_unavailable");
-
-    // Size must be one of the product's sizes (or none when it has none).
-    if (product.sizes.length > 0 ? !product.sizes.some((s) => s.id === sizeId) : sizeId !== null) {
-      return orderError("invalid_item");
-    }
-
-    // Every option must belong to this product, at most one per group.
-    if (new Set(optionIds).size !== optionIds.length) return orderError("invalid_item");
-    const groupsUsed = new Set<string>();
-    for (const optionId of optionIds) {
-      const group = product.variantGroups.find((g) => g.options.some((o) => o.id === optionId));
-      if (!group || groupsUsed.has(group.id)) return orderError("invalid_item");
-      groupsUsed.add(group.id);
-    }
-    if (findMissingChoices(product, { sizeId, optionIds }).length > 0) return orderError("invalid_item");
-
-    // Every add-on must be offered for this product and currently available.
-    if (new Set(addonIds).size !== addonIds.length) return orderError("invalid_item");
-    for (const addonId of addonIds) {
-      const addon = index.addons.get(addonId);
-      if (!addon || !product.addonIds.includes(addonId)) return orderError("invalid_item");
-      if (!addon.isAvailable) return orderError("item_unavailable");
-    }
-
-    const priced = priceItem(index, { productId, sizeId, optionIds, addonIds, quantity, notes });
-    if (!priced || priced.issues.length > 0) return orderError("invalid_item");
-
-    items.push({
-      product_key: product.id,
-      product_name: product.name,
-      category_name: categoryNames.get(product.categoryId) ?? null,
-      size_name: priced.size?.name ?? null,
-      base_price: priced.size?.price ?? product.basePrice,
-      options: priced.options.map(({ group, option }) => ({
-        group: group.name,
-        name: option.name,
-        price_delta: option.priceDelta,
-      })),
-      addons: priced.addons.map((a) => ({ key: a.id, name: a.name, price: a.price })),
-      unit_price: priced.unitPrice,
-      quantity,
-      notes,
-    });
-    subtotal += priced.lineTotal;
+    const built = buildOrderItem(raw, index, categoryNames);
+    if (!built.ok) return built;
+    items.push(built.item);
+    subtotal += built.lineTotal;
   }
 
   // ---- customer + order type details -------------------------------------------------

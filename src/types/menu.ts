@@ -58,6 +58,21 @@ export type Product = {
   sortOrder: number;
 };
 
+/**
+ * A common extra staff can add to an open order on its own (e.g. "Extra Rice").
+ * Its price and availability come from the add-on it points to, so there is
+ * one place to change them.
+ */
+export type QuickExtra = {
+  /** Stored as the order line's product key, e.g. "extra-rice". */
+  id: string;
+  name: string;
+  /** Add-on that sets the price and the Sold out state. */
+  addonId: string;
+  /** Short label for the one-tap button on dine-in orders (e.g. "Rice"); omit for no button. */
+  quickButton?: string;
+};
+
 export type Menu = {
   categories: Category[];
   products: Product[];

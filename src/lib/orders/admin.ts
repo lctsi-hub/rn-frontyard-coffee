@@ -7,7 +7,7 @@ import type { OrderStatus } from "./status";
 type OrderRow = Database["public"]["Tables"]["orders"]["Row"];
 type ItemRow = Database["public"]["Tables"]["order_items"]["Row"];
 
-export type AdminOrderItem = Omit<ItemRow, "order_id" | "created_at">;
+export type AdminOrderItem = Omit<ItemRow, "order_id" | "created_at" | "source" | "added_by">;
 export type AdminOrder = Omit<OrderRow, "order_seq" | "tracking_token_hash" | "client_request_id" | "request_fingerprint"> & {
   order_items: AdminOrderItem[];
 };

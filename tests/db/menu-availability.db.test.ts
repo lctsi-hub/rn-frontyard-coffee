@@ -64,11 +64,12 @@ test("bad item types and keys are rejected", async () => {
   await assert.rejects(asRole(pool, "authenticated", adminId, (c) => c.query(upsert, ["product", "Americano!", false])));
 });
 
-test("orders are published to Realtime (admins only receive them, via RLS)", async () => {
+test("only order tables are published to Realtime (admins only receive them, via RLS)", async () => {
   const { rows } = await pool.query(
-    "select tablename from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public'",
+    "select tablename from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' order by tablename",
   );
-  assert.deepEqual(rows.map((r) => r.tablename), ["orders"]);
+  // orders (this migration) + order_adjustments (20261006120000_add_items_to_orders)
+  assert.deepEqual(rows.map((r) => r.tablename), ["order_adjustments", "orders"]);
 });
 
 test("the migration changed nothing in the order tables' security", async () => {
