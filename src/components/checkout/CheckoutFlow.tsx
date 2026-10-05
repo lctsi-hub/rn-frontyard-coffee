@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { ArrowRight, ChevronLeft, ShoppingBag, TriangleAlert } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowRight, Check, ChevronLeft, ShoppingBag, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useMenuIndex } from "@/components/menu/MenuProvider";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -24,9 +24,11 @@ import { formatPeso } from "@/lib/format";
 import { summarizeCart } from "@/lib/pricing";
 import { withTable } from "@/lib/table";
 import { cn } from "@/lib/utils";
-import { submitOrder, type SubmitOrderResult } from "@/services/orders/submit-order";
-import { useCart } from "@/stores/cart";
-import { updateCheckoutForm, useCheckoutForm } from "@/stores/checkout";
+import { placeOrderAction } from "@/app/order/checkout/actions";
+import type { PlaceOrderResult } from "@/lib/orders/place-order";
+import { cartActions, useCart } from "@/stores/cart";
+import { resetCheckoutVisit, updateCheckoutForm, useCheckoutForm } from "@/stores/checkout";
+import { saveRecentOrder } from "@/stores/recent-order";
 import type { OrderRequest, StoreSettings } from "@/types/order";
 import { DetailsStep } from "./DetailsStep";
 import { OrderTypeStep } from "./OrderTypeStep";
@@ -73,7 +75,9 @@ export function CheckoutFlow({ settings, tableFromLink }: { settings: StoreSetti
   const [errors, setErrors] = useState<FieldErrors>({});
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<SubmitOrderResult | null>(null);
+  const router = useRouter();
+  const [result, setResult] = useState<PlaceOrderResult | null>(null);
+  const [placed, setPlaced] = useState(false);
   const attemptRef = useRef<{ key: string; payload: string } | null>(null);
 
   const summary = summarizeCart(index, cart.lines);
@@ -184,12 +188,44 @@ export function CheckoutFlow({ settings, tableFromLink }: { settings: StoreSetti
     }
     const request: OrderRequest = { clientRequestId: attemptRef.current.key, ...order };
     setSubmitting(true);
+    let outcome: PlaceOrderResult;
     try {
-      setResult(await submitOrder(request));
-    } finally {
-      setSubmitting(false);
-      setConfirming(false);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      outcome = await placeOrderAction(request);
+    } catch {
+      // Network/server hiccup: the order may or may not exist. Retrying sends the
+      // same idempotency key, so it can't create a second order.
+      outcome = {
+        ok: false,
+        code: "server_error",
+        message: "We couldn't reach the shop. Please check your connection and tap Place Order again.",
+      };
+    }
+
+    if (outcome.ok) {
+      saveRecentOrder({
+        orderNumber: outcome.orderNumber,
+        trackingToken: outcome.trackingToken,
+        orderType,
+        total: outcome.total,
+        tableNumber,
+      });
+      setPlaced(true);
+      attemptRef.current = null;
+      cartActions.clear();
+      resetCheckoutVisit();
+      router.replace(withTable("/order/received", tableFromLink));
+      return;
+    }
+
+    setResult(outcome);
+    setSubmitting(false);
+    setConfirming(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    // A different order under the same key: start a fresh attempt next time.
+    if (outcome.code === "idempotency_key_reused") attemptRef.current = null;
+    // Prices, settings or availability changed: reload them from the server.
+    if (["total_changed", "item_unavailable", "item_price_mismatch", "delivery_unavailable", "delivery_below_minimum", "delivery_area_invalid", "ordering_closed"].includes(outcome.code)) {
+      router.refresh();
     }
   }
 
@@ -236,13 +272,28 @@ export function CheckoutFlow({ settings, tableFromLink }: { settings: StoreSetti
     );
   }
 
+  if (placed) {
+    return (
+      <>
+        {header}
+        <main aria-busy="true" className="mx-auto flex max-w-md flex-col items-center px-6 pt-24 text-center">
+          <span className="grid size-20 animate-pop place-items-center rounded-full bg-espresso text-honey shadow-lift">
+            <Check className="size-10" strokeWidth={2.5} />
+          </span>
+          <p className="font-display mt-6 text-2xl font-semibold">Order placed!</p>
+          <p className="mt-2 text-mocha">Opening your order…</p>
+        </main>
+      </>
+    );
+  }
+
   if (!settings.ordering.enabled) {
     return (
       <>
         {header}
         <Notice
-          title="We're not taking online orders right now"
-          body="Please order at the counter, or check back a little later."
+          title="Online ordering is paused"
+          body="Online ordering is currently unavailable. Please visit us again soon."
           href={withTable("/order", tableFromLink)}
           action="Back to menu"
         />
@@ -290,8 +341,12 @@ export function CheckoutFlow({ settings, tableFromLink }: { settings: StoreSetti
           <div role="alert" className="mt-5 flex animate-fade-up gap-3 rounded-[1.75rem] bg-honey/30 p-4 text-sm text-espresso ring-1 ring-honey">
             <TriangleAlert className="mt-0.5 size-5 shrink-0 text-caramel" />
             <div>
-              <p className="font-semibold">Test mode: order not sent</p>
-              <p className="mt-1 text-coffee">{result.message} Your cart is still saved.</p>
+              <p className="font-semibold">
+                {result.code === "not_connected" ? "Test mode: order not sent" : "Your order wasn't placed"}
+              </p>
+              <p className="mt-1 text-coffee">
+                {result.message} Your cart and details are still saved.
+              </p>
             </div>
           </div>
         )}

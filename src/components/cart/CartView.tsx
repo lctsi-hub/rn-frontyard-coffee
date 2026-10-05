@@ -122,6 +122,11 @@ export function CartView({ table, settings }: { table: number | null; settings: 
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-espresso/10 bg-cream/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md">
         <div className="mx-auto max-w-md">
+          {!settings.ordering.enabled && (
+            <p className="mb-2 text-center text-sm font-medium text-berry">
+              Online ordering is currently unavailable. Please visit us again soon.
+            </p>
+          )}
           {hasProblems && (
             <p className="mb-2 text-center text-sm font-medium text-berry">
               Remove or edit the unavailable items to continue.
@@ -133,7 +138,7 @@ export function CartView({ table, settings }: { table: number | null; settings: 
             </span>
             <span className="font-semibold tabular-nums">{formatPeso(subtotal)}</span>
           </p>
-          {hasProblems || itemCount === 0 ? (
+          {hasProblems || itemCount === 0 || !settings.ordering.enabled ? (
             <button
               type="button"
               disabled

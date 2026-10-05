@@ -72,3 +72,8 @@ export function updateCheckoutForm(patch: Partial<CheckoutForm>) {
   if (Object.keys(contactPatch).length) contactStore.set({ ...contactStore.get(), ...contactPatch });
   if (Object.keys(visitPatch).length) visitStore.set({ ...visitStore.get(), ...visitPatch });
 }
+
+/** After a successful order: forget this visit's choices; keep name/phone/address for next time. */
+export function resetCheckoutVisit() {
+  visitStore.set(EMPTY_VISIT);
+}

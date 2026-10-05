@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
 import Image from "next/image";
-import { MapPin } from "lucide-react";
+import { CircleAlert, MapPin } from "lucide-react";
 import { FloatingCartBar } from "@/components/cart/FloatingCartBar";
 import { CategoryNav } from "@/components/menu/CategoryNav";
 import { FeaturedRow } from "@/components/menu/FeaturedRow";
 import { ProductCard } from "@/components/menu/ProductCard";
 import { OrderHeader } from "@/components/order/OrderHeader";
+import { RecentOrderBanner } from "@/components/order/RecentOrderBanner";
 import { TableBanner } from "@/components/order/TableBanner";
 import { getMenu, groupByCategory } from "@/lib/menu";
 import { categorySectionId } from "@/lib/menu-display";
+import { getStoreSettings } from "@/lib/settings";
 import { STORE, STORE_LOCATION_LABEL } from "@/lib/store";
 import { parseTableParam } from "@/lib/table";
 import bannerImage from "../../../public/menu/banner-drinks.jpg";
@@ -19,7 +21,7 @@ export const metadata: Metadata = {
 
 export default async function OrderPage({ searchParams }: PageProps<"/order">) {
   const table = parseTableParam((await searchParams).table);
-  const menu = await getMenu();
+  const [menu, settings] = await Promise.all([getMenu(), getStoreSettings()]);
   const sections = groupByCategory(menu);
   const categorySlugById = Object.fromEntries(menu.categories.map((c) => [c.id, c.slug]));
   const featured = menu.products.filter((p) => p.isFeatured);
@@ -53,7 +55,14 @@ export default async function OrderPage({ searchParams }: PageProps<"/order">) {
             </div>
           </div>
 
+          {!settings.ordering.enabled && (
+            <p role="status" className="mt-4 flex items-start gap-3 rounded-2xl bg-honey/30 p-4 text-sm font-medium text-espresso ring-1 ring-honey">
+              <CircleAlert className="mt-0.5 size-5 shrink-0 text-caramel" />
+              Online ordering is currently unavailable. Please visit us again soon.
+            </p>
+          )}
           <TableBanner table={table} />
+          <RecentOrderBanner />
         </section>
 
         <div className="animate-fade-up [animation-delay:120ms]">

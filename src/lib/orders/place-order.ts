@@ -8,6 +8,7 @@ import { getStoreSettings } from "@/lib/settings";
 import { createSupabaseServiceClient, isSecretKeyConfigured } from "@/lib/supabase/service";
 import { buildOrder } from "./build-order";
 import { orderError, orderErrorFromDatabase, type OrderError } from "./errors";
+import { parseTracking, type TrackingOrder } from "./tracking";
 import {
   hashTrackingToken,
   isTrackingSecretConfigured,
@@ -53,7 +54,7 @@ export async function placeOrder(input: unknown): Promise<PlaceOrderResult> {
 }
 
 /** Safe tracking data for one order, or null for an unknown/malformed token. */
-export async function getOrderTracking(token: unknown) {
+export async function getOrderTracking(token: unknown): Promise<TrackingOrder | null> {
   if (!isOrderBackendConfigured() || !isWellFormedTrackingToken(token)) return null;
   const supabase = createSupabaseServiceClient();
   const { data, error } = await supabase.rpc("get_order_tracking", { p_token_hash: hashTrackingToken(token) });
@@ -61,5 +62,5 @@ export async function getOrderTracking(token: unknown) {
     console.error("[getOrderTracking] failed", { code: error.code });
     return null;
   }
-  return data;
+  return parseTracking(data);
 }
