@@ -1,8 +1,8 @@
 // Throwaway local PostgreSQL 17 for database tests. Never touches the cloud:
 // it starts a server on 127.0.0.1, in .test-db/ inside this project, applies
-// tests/db/supabase-shim.sql + our migration, and deletes everything on stop.
+// tests/db/supabase-shim.sql + every migration in order, and deletes everything on stop.
 import { randomUUID } from "node:crypto";
-import { readFileSync, rmdirSync, rmSync } from "node:fs";
+import { readdirSync, readFileSync, rmdirSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import EmbeddedPostgres from "embedded-postgres";
@@ -10,7 +10,11 @@ import pg from "pg";
 
 const ROOT = new URL("../../", import.meta.url);
 const SHIM = new URL("tests/db/supabase-shim.sql", ROOT);
-const MIGRATION = new URL("supabase/migrations/20261005120000_phase5a_orders.sql", ROOT);
+const MIGRATIONS_DIR = new URL("supabase/migrations/", ROOT);
+export const MIGRATIONS = readdirSync(MIGRATIONS_DIR)
+  .filter((f) => f.endsWith(".sql"))
+  .sort()
+  .map((f) => new URL(f, MIGRATIONS_DIR));
 
 export type Role = "anon" | "authenticated" | "service_role";
 
@@ -62,7 +66,7 @@ export async function startTestDatabase() {
     // table/function grants, proving the migration grants everything it needs.
     if (process.env.RNFC_NO_DEFAULT_GRANTS === "1") shim = shim.replace(/^alter default privileges.*$/gm, "");
     await pool.query(shim);
-    await pool.query(readFileSync(MIGRATION, "utf8"));
+    for (const migration of MIGRATIONS) await pool.query(readFileSync(migration, "utf8"));
   } catch (error) {
     // Never leave a server running if setup fails.
     await stop();
