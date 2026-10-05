@@ -14,7 +14,8 @@
     "env:tracking-secret": "node scripts/set-tracking-secret.mjs",
     "cloud:verify": "node scripts/verify-cloud-schema.mjs",
     "brand:logo": "node scripts/prepare-logo.mjs",
-    "menu:photos": "node scripts/prepare-menu-photos.mjs"
+    "menu:photos": "node scripts/prepare-menu-photos.mjs",
+    "menu:sheets": "node scripts/prepare-menu-sheets.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
