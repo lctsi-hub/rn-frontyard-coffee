@@ -79,7 +79,7 @@ The browser sends **only ids and choices**: product id, size id, option ids, add
 
 - **Raw token:** `base64url(HMAC-SHA256(TRACKING_TOKEN_SECRET, idempotency key))`, a 256-bit value that's unguessable without the server secret. A safe retry recomputes the same token, so the customer gets the same link back.
 - **Stored:** only `SHA-256(raw token)`. The raw token goes to the customer once, after the order is saved, and is never stored or logged (tested: the raw token appears nowhere in the order row).
-- **Lookup:** the server hashes the raw token, then calls `get_order_tracking(hash)` (service role only).
+- **Lookup:** the server hashes the raw token, then calls `get_order_tracking(hash)` (secret key / `service_role` only).
 - **Response:** a safe summary of the order number, first name, order type, status, table number, payment method, items, totals and timeline. It contains **no phone, address, landmark, delivery instructions, full name or internal ids** (tested).
 
 ## 7. Status changes
@@ -111,15 +111,19 @@ RLS is on for every table, and Supabase's default grants are narrowed explicitly
 
 | Who | orders / items / history | settings, areas | Functions |
 | --- | --- | --- | --- |
-| **Customer** (anon key) | **No access** (permission denied for list, read by UUID, update) | Read active areas and settings; no writes | none: `create_order`, `update_order_status` and `get_order_tracking` are all denied |
-| **Next.js server** (service role, server-only) | Writes only via `create_order` | — | `create_order`, `get_order_tracking` |
+| **Customer** (publishable key → `anon` role) | **No access** (permission denied for list, read by UUID, update) | Read active areas and settings; no writes | none: `create_order`, `update_order_status` and `get_order_tracking` are all denied |
+| **Next.js server** (secret key → `service_role`, server-only) | Writes only via `create_order` | — | `create_order`, `get_order_tracking` |
 | **Signed-in non-admin** | Sees 0 orders; can't update, insert or delete | Read only (updates affect 0 rows) | `update_order_status` → `not_authorized` |
 | **Admin** (in `admin_users`) | Reads all; no direct update or delete (permission denied) | Read and edit | `update_order_status` (valid transitions only) |
 
-- **Service-role key:** stored in `SUPABASE_SERVICE_ROLE_KEY`, with no `NEXT_PUBLIC_` prefix.
-  - It's used only in `src/lib/supabase/service.ts`, which has `import "server-only"`, so importing it from client code fails the build.
+- **API keys:** the project uses Supabase's current keys.
+  - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (`sb_publishable_…`) may be used by browser and public clients. Requests made with it run as the database role `anon`, or `authenticated` once signed in.
+  - `SUPABASE_SECRET_KEY` (`sb_secret_…`) is server-only. Requests made with it run as `service_role`. The migration's role names are the database's roles and are unchanged.
+- **Secret key protection:**
+  - It has no `NEXT_PUBLIC_` prefix, and it's used only in `src/lib/supabase/service.ts`. That file has `import "server-only"`, so importing it from client code fails the build (tested).
+  - `next.config.ts` refuses to start or build if any `NEXT_PUBLIC_` variable holds a secret (a `sb_secret_…` key, a legacy service_role JWT, or the tracking secret).
   - The key is never logged; errors log only the database error code.
-  - `.env.local` is git-ignored.
+  - `.env.local` is git-ignored, and `npm run env:check` validates it without printing any values.
 - **SECURITY DEFINER functions** use `set search_path = ''` and fully qualified names.
 
 ## 9. Placing an order (Phase 5B)

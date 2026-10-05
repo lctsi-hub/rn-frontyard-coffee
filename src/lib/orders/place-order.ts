@@ -5,7 +5,7 @@ import "server-only";
 // "not_connected" and the app stays in test mode.
 import { getMenu } from "@/lib/menu";
 import { getStoreSettings } from "@/lib/settings";
-import { createSupabaseServiceClient, isServiceRoleConfigured } from "@/lib/supabase/service";
+import { createSupabaseServiceClient, isSecretKeyConfigured } from "@/lib/supabase/service";
 import { buildOrder } from "./build-order";
 import { orderError, orderErrorFromDatabase, type OrderError } from "./errors";
 import {
@@ -20,7 +20,7 @@ export type PlaceOrderResult =
   | OrderError;
 
 export function isOrderBackendConfigured() {
-  return isServiceRoleConfigured() && isTrackingSecretConfigured();
+  return isSecretKeyConfigured() && isTrackingSecretConfigured();
 }
 
 /** `input` comes straight from the browser and is treated as untrusted. */

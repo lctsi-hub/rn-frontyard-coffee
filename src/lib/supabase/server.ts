@@ -1,7 +1,7 @@
 import "server-only";
 
 // Server Supabase client for Server Components, Server Actions and Route
-// Handlers. Uses the anon key plus the visitor's auth cookies, so it acts as
+// Handlers. Uses the publishable key plus the visitor's auth cookies, so it acts as
 // the signed-in user (e.g. Bam in the admin dashboard) and RLS applies.
 // Create a new one per request; never share it between requests.
 import { createServerClient } from "@supabase/ssr";
@@ -10,10 +10,10 @@ import type { Database } from "./database.types";
 import { getSupabasePublicEnv } from "./env";
 
 export async function createSupabaseServerClient() {
-  const { url, anonKey } = getSupabasePublicEnv();
+  const { url, publishableKey } = getSupabasePublicEnv();
   const cookieStore = await cookies();
 
-  return createServerClient<Database>(url, anonKey, {
+  return createServerClient<Database>(url, publishableKey, {
     cookies: {
       getAll() {
         return cookieStore.getAll();

@@ -453,7 +453,7 @@ describe("status transitions (admins, via update_order_status)", () => {
     await assert.rejects(setStatus(id, "received", "cancelled"), failsWith("status_changed"));
   });
 
-  test("even a direct update by the service role can't make an impossible jump", async () => {
+  test("even a direct update as service_role (secret key) can't make an impossible jump", async () => {
     const id = await newOrder("dine_in");
     await assert.rejects(
       asRole(pool, "service_role", null, (c) => c.query("update public.orders set status = 'completed' where id = $1", [id])),
