@@ -431,6 +431,7 @@ export function CheckoutFlow({ settings, tableFromLink }: { settings: StoreSetti
         open={confirming}
         title="Place your order?"
         confirmLabel="Yes, place order"
+        busyLabel="Placing order…"
         busy={submitting}
         onConfirm={placeOrder}
         onCancel={() => setConfirming(false)}

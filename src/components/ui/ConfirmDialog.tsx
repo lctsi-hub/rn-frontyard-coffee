@@ -10,6 +10,7 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel = "Not yet",
   busy = false,
+  busyLabel = "Working…",
   onConfirm,
   onCancel,
 }: {
@@ -19,6 +20,7 @@ export function ConfirmDialog({
   confirmLabel: string;
   cancelLabel?: string;
   busy?: boolean;
+  busyLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -54,7 +56,7 @@ export function ConfirmDialog({
             autoFocus
             className="h-14 rounded-full bg-espresso font-semibold text-foam shadow-lift transition-transform active:scale-[0.97] disabled:opacity-60"
           >
-            {busy ? "Placing order…" : confirmLabel}
+            {busy ? busyLabel : confirmLabel}
           </button>
           <button
             type="button"
