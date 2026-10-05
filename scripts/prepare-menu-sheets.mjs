@@ -89,7 +89,7 @@ async function cleanPiece(src, area) {
 for (const sheet of SHEETS) {
   const src = `assets/menu-sheets/${sheet.file}`;
   const { data, info } = await sharp(src).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-  const { width: W, height: H } = info;
+  const { width: W } = info;
   const isInk = (x, y) => {
     const i = (y * W + x) * 3;
     return 255 - Math.min(data[i], data[i + 1], data[i + 2]) > INK;

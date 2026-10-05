@@ -1,13 +1,16 @@
 "use client";
 
-import { Bell, BellOff, Radio, RefreshCw, X } from "lucide-react";
+import { Bell, BellOff, Radio, RefreshCw, UtensilsCrossed, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { formatPeso } from "@/lib/format";
 import { createLocalStore } from "@/lib/local-store";
 import type { AdminOrder } from "@/lib/orders/admin";
-import { ORDER_TYPE_NAMES, type OrderStatus } from "@/lib/orders/status";
+import { canAddItems, type PricedExtra } from "@/lib/orders/staff-items";
+import { ORDER_TYPE_NAMES, statusLabel, type OrderStatus } from "@/lib/orders/status";
 import { cn } from "@/lib/utils";
+import type { Menu } from "@/types/menu";
+import { useOrderAdditions } from "./AddItem";
 import { AdminOrderCard } from "./AdminOrderCard";
 import { playChime } from "./chime";
 import { useLiveOrders } from "./useLiveOrders";
@@ -28,7 +31,9 @@ const COLUMNS: Array<{ status: OrderStatus; title: string }> = [
 
 const HIGHLIGHT_MS = 2 * 60 * 1000;
 
-export function LiveDashboard() {
+const cardId = (orderId: string) => `order-${orderId}`;
+
+export function LiveDashboard({ menu, extras }: { menu: Menu; extras: PricedExtra[] }) {
   const soundOn = soundStore.useValue();
   const [alert, setAlert] = useState<{ numbers: string[]; summary: string } | null>(null);
   const [highlighted, setHighlighted] = useState<Map<string, number>>(new Map());
@@ -57,6 +62,13 @@ export function LiveDashboard() {
   );
 
   const live = useLiveOrders({ onNewOrders });
+  const additions = useOrderAdditions({ menu, extras, onChanged: () => void live.reload() });
+
+  /** Active Tables: jump to that table's open order and flash it. */
+  const showOrder = (order: AdminOrder) => {
+    document.getElementById(cardId(order.id))?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+    setHighlighted((prev) => new Map(prev).set(order.id, Date.now()));
+  };
 
   // Clock for "x min ago" and for fading highlights.
   useEffect(() => {
@@ -81,6 +93,10 @@ export function LiveDashboard() {
   };
 
   const active = live.orders;
+  // Dine-in orders that can still take items, by table (only open orders: never an old completed one).
+  const tables = active
+    .filter((o) => o.order_type === "dine_in" && o.table_number && canAddItems(o.status))
+    .sort((a, b) => (a.table_number ?? 0) - (b.table_number ?? 0) || a.created_at.localeCompare(b.created_at));
   const todayValid = live.today.filter((o) => o.status !== "cancelled");
   const count = (status: OrderStatus) => active.filter((o) => o.status === status).length;
   const stats = [
@@ -164,6 +180,32 @@ export function LiveDashboard() {
       </section>
       <p className="mt-2 text-xs text-mocha">Sales and counts exclude cancelled orders. &ldquo;Today&rdquo; is Philippine time.</p>
 
+      <section aria-label="Active tables" className="mt-5 rounded-3xl bg-white p-4 shadow-card ring-1 ring-espresso/5">
+        <h2 className="flex items-center gap-2 font-semibold">
+          <UtensilsCrossed className="size-4 text-caramel" /> Active Tables
+          <span className="grid h-6 min-w-6 place-items-center rounded-full bg-oat px-2 text-xs tabular-nums">{tables.length}</span>
+        </h2>
+        {tables.length === 0 ? (
+          <p className="mt-2 text-sm text-mocha">{live.loaded ? "No dine-in tables with an open order." : "Loading…"}</p>
+        ) : (
+          <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-2">
+            {tables.map((order) => (
+              <li key={order.id}>
+                <button
+                  type="button"
+                  onClick={() => showOrder(order)}
+                  className="flex w-full flex-col items-start rounded-2xl bg-cream px-3 py-2.5 text-left ring-1 ring-espresso/10 transition-colors hover:bg-oat/60"
+                >
+                  <span className="text-lg leading-tight font-extrabold">Table {order.table_number}</span>
+                  <span className="text-sm font-semibold text-coffee">{order.order_number}</span>
+                  <span className="text-xs text-mocha">{statusLabel(order.order_type, order.status as OrderStatus)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <section
         aria-label="Order board"
         className="no-scrollbar -mx-4 mt-6 grid snap-x snap-mandatory auto-cols-[min(88vw,22rem)] grid-flow-col gap-4 overflow-x-auto px-4 pb-4 lg:mx-0 lg:auto-cols-[minmax(17rem,1fr)] lg:px-0"
@@ -181,7 +223,12 @@ export function LiveDashboard() {
                 {items.map((order) => (
                   <AdminOrderCard
                     key={order.id}
+                    id={cardId(order.id)}
                     order={order}
+                    adjustments={live.adjustments.get(order.id)}
+                    quickExtras={extras}
+                    onAddItem={() => additions.openAddItem(order)}
+                    onQuickAdd={(extra) => additions.quickAdd(order, extra)}
                     now={now || new Date(order.created_at).getTime()}
                     highlight={isHighlighted(order.id)}
                     pending={live.pending.has(order.id)}
@@ -211,6 +258,7 @@ export function LiveDashboard() {
       >
         <p>The customer will see this order as cancelled. This can&apos;t be undone.</p>
       </ConfirmDialog>
+      {additions.element}
     </div>
   );
 }

@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Search } from "lucide-react";
-import { OrderItemsList } from "@/components/admin/AdminOrderCard";
+import { AddedAfterCheckout, addedItems, OrderItemsList } from "@/components/admin/AdminOrderCard";
+import { AddItemButton, AddItemProvider } from "@/components/admin/HistoryAddItem";
 import { requireAdmin } from "@/lib/auth/admin";
 import { formatPeso } from "@/lib/format";
-import { ADMIN_ORDER_COLUMNS, isOrderStatus, PAYMENT_LABELS, type AdminOrder } from "@/lib/orders/admin";
+import { getMenu } from "@/lib/menu";
+import { ADJUSTMENT_COLUMNS, ADMIN_ORDER_COLUMNS, isOrderStatus, PAYMENT_LABELS, type AdminOrder, type OrderAdjustment } from "@/lib/orders/admin";
+import { canAddItems, resolveQuickExtras } from "@/lib/orders/staff-items";
 import { ORDER_TYPE_NAMES, statusLabel, type OrderStatus } from "@/lib/orders/status";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatDateTime, isValidDateString, manilaDateString, manilaDayRange } from "@/lib/time";
@@ -47,13 +50,27 @@ export default async function OrderHistoryPage({ searchParams }: PageProps<"/adm
   if (type) query = query.eq("order_type", type);
   if (status) query = query.eq("status", status);
 
-  const { data, error } = await query;
+  const [{ data, error }, menu] = await Promise.all([query, getMenu()]);
   const orders = (data ?? []) as unknown as AdminOrder[];
+  for (const order of orders) order.order_items.sort((a, b) => a.line_number - b.line_number);
+
+  // Items added after checkout (audit trail). Optional until the migration is applied.
+  const adjustments = new Map<string, OrderAdjustment[]>();
+  if (orders.length > 0) {
+    const added = await supabase
+      .from("order_adjustments")
+      .select(ADJUSTMENT_COLUMNS)
+      .in("order_id", orders.map((o) => o.id))
+      .order("created_at", { ascending: true });
+    for (const row of (added.error ? [] : (added.data ?? [])) as OrderAdjustment[]) {
+      adjustments.set(row.order_id, [...(adjustments.get(row.order_id) ?? []), row]);
+    }
+  }
   const counted = orders.filter((o) => o.status !== "cancelled");
   const totalValue = counted.reduce((sum, o) => sum + Number(o.total), 0);
 
   return (
-    <div>
+    <AddItemProvider menu={menu} extras={resolveQuickExtras(menu)}>
       <h1 className="font-display text-3xl font-semibold">Order history</h1>
 
       <form method="get" className="mt-4 grid gap-3 rounded-3xl bg-white p-4 shadow-card ring-1 ring-espresso/5 sm:grid-cols-2 lg:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
@@ -125,7 +142,9 @@ export default async function OrderHistoryPage({ searchParams }: PageProps<"/adm
                     <span className="text-sm text-mocha">{formatDateTime(order.created_at)}</span>
                     <span className="text-sm">
                       {ORDER_TYPE_NAMES[order.order_type]}
-                      {order.order_type === "dine_in" && order.table_number ? ` · T${order.table_number}` : ""}
+                      {order.order_type === "dine_in" && order.table_number ? (
+                        <span className="ml-1.5 rounded-md bg-espresso px-1.5 py-0.5 text-xs font-extrabold text-foam">TABLE {order.table_number}</span>
+                      ) : null}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-sm text-coffee">{order.customer_name}</span>
                     <span
@@ -139,7 +158,24 @@ export default async function OrderHistoryPage({ searchParams }: PageProps<"/adm
                     <span className="font-semibold tabular-nums">{formatPeso(Number(order.total))}</span>
                   </summary>
                   <div className="grid gap-4 border-t border-dashed border-espresso/15 px-4 py-4 text-sm md:grid-cols-2">
-                    <OrderItemsList order={order} />
+                    <div>
+                      <OrderItemsList order={order} added={addedItems(adjustments.get(order.id))} />
+                      {adjustments.get(order.id)?.length ? <AddedAfterCheckout order={order} adjustments={adjustments.get(order.id)!} /> : null}
+                      {canAddItems(order.status) && (
+                        <div className="mt-3">
+                          <AddItemButton
+                            order={{
+                              id: order.id,
+                              order_number: order.order_number,
+                              table_number: order.table_number,
+                              order_type: order.order_type,
+                              payment_method: order.payment_method,
+                              total: order.total,
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
                     <dl className="space-y-1">
                       <Row label="Customer" value={order.customer_name} />
                       {order.customer_phone && <Row label="Mobile" value={order.customer_phone} />}
@@ -164,7 +200,7 @@ export default async function OrderHistoryPage({ searchParams }: PageProps<"/adm
           </ul>
         </>
       )}
-    </div>
+    </AddItemProvider>
   );
 }
 

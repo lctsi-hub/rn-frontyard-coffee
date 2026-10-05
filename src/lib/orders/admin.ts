@@ -16,6 +16,15 @@ export type AdminOrder = Omit<OrderRow, "order_seq" | "tracking_token_hash" | "c
 export const ADMIN_ORDER_COLUMNS =
   "id, order_number, order_type, status, customer_name, customer_phone, table_number, delivery_area_id, delivery_area_name, delivery_address, delivery_landmark, delivery_instructions, payment_method, notes, subtotal, delivery_fee, total, created_at, updated_at, order_items(id, line_number, product_key, product_name, category_name, size_name, base_price, options, addons, unit_price, quantity, notes, line_total)";
 
+/** An item staff added after checkout (audit row from order_adjustments). */
+export type OrderAdjustment = Pick<
+  Database["public"]["Tables"]["order_adjustments"]["Row"],
+  "id" | "order_id" | "order_item_id" | "description" | "amount" | "previous_total" | "new_total" | "added_by_name" | "created_at" | "acknowledged_at"
+>;
+
+export const ADJUSTMENT_COLUMNS =
+  "id, order_id, order_item_id, description, amount, previous_total, new_total, added_by_name, created_at, acknowledged_at";
+
 export const PAYMENT_LABELS = { cash: "Cash", gcash: "GCash", counter: "Pay at Counter" } as const;
 
 type Named = { name?: unknown; group?: unknown };

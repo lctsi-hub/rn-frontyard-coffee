@@ -1,22 +1,45 @@
 "use client";
 
-import { Bike, MapPin, Phone, ShoppingBag, StickyNote, UtensilsCrossed, X } from "lucide-react";
+import { Bike, History, MapPin, Phone, Plus, ShoppingBag, StickyNote, TriangleAlert, UtensilsCrossed, X } from "lucide-react";
 import { formatPeso } from "@/lib/format";
-import { optionNames, PAYMENT_LABELS, type AdminOrder } from "@/lib/orders/admin";
+import { optionNames, PAYMENT_LABELS, type AdminOrder, type OrderAdjustment } from "@/lib/orders/admin";
+import { canAddItems, type PricedExtra } from "@/lib/orders/staff-items";
 import { canCancel, nextAction, ORDER_TYPE_NAMES, statusLabel, type OrderStatus } from "@/lib/orders/status";
 import { elapsed, formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 const TYPE_ICONS = { dine_in: UtensilsCrossed, take_out: ShoppingBag, delivery: Bike } as const;
 
-export function OrderItemsList({ order, large = false }: { order: Pick<AdminOrder, "order_items">; large?: boolean }) {
+/** Items staff added after checkout, keyed by order item id. */
+export function addedItems(adjustments: OrderAdjustment[] | undefined) {
+  return new Map((adjustments ?? []).map((a) => [a.order_item_id, a]));
+}
+
+export function OrderItemsList({
+  order,
+  large = false,
+  added,
+}: {
+  order: Pick<AdminOrder, "order_items">;
+  large?: boolean;
+  /** Staff-added items (see addedItems); ones the kitchen hasn't acknowledged are marked NEW. */
+  added?: Map<string, OrderAdjustment>;
+}) {
   return (
     <ul className={cn("flex flex-col", large ? "gap-3" : "gap-2")}>
       {order.order_items.map((item) => {
         const details = [item.size_name, ...optionNames(item.options)].filter(Boolean).join(" · ");
         const addons = optionNames(item.addons);
+        const addition = added?.get(item.id);
+        const isNew = Boolean(addition && !addition.acknowledged_at);
         return (
-          <li key={item.id} className="flex gap-2.5">
+          <li
+            key={item.id}
+            className={cn(
+              "flex gap-2.5",
+              isNew && (large ? "-mx-2 rounded-2xl bg-honey/60 p-2 ring-2 ring-honey" : "-mx-1.5 rounded-xl bg-honey/40 p-1.5"),
+            )}
+          >
             <span
               className={cn(
                 "grid shrink-0 place-items-center rounded-lg bg-espresso font-bold text-foam tabular-nums",
@@ -26,6 +49,17 @@ export function OrderItemsList({ order, large = false }: { order: Pick<AdminOrde
               {item.quantity}×
             </span>
             <div className="min-w-0 flex-1">
+              {addition && (
+                <span
+                  className={cn(
+                    "mb-0.5 inline-block rounded-md px-1.5 py-0.5 font-bold tracking-wide uppercase",
+                    large ? "text-sm" : "text-[0.65rem]",
+                    isNew ? "bg-berry text-foam" : "bg-oat text-coffee",
+                  )}
+                >
+                  {isNew ? "New · Added" : "Added"}
+                </span>
+              )}
               <p className={cn("font-semibold break-words", large && "text-lg leading-snug")}>{item.product_name}</p>
               {details && <p className={cn("text-coffee", large ? "text-base" : "text-sm")}>{details}</p>}
               {addons.map((a) => (
@@ -53,6 +87,11 @@ export function AdminOrderCard({
   pending,
   onAdvance,
   onCancel,
+  adjustments,
+  quickExtras = [],
+  onAddItem,
+  onQuickAdd,
+  id,
 }: {
   order: AdminOrder;
   now: number;
@@ -60,23 +99,39 @@ export function AdminOrderCard({
   pending: boolean;
   onAdvance: (to: OrderStatus) => void;
   onCancel: () => void;
+  /** Items staff added after checkout (audit trail). */
+  adjustments?: OrderAdjustment[];
+  /** Extras with a one-tap button on dine-in orders (+ Rice, + Kimchi). */
+  quickExtras?: PricedExtra[];
+  onAddItem?: () => void;
+  onQuickAdd?: (extra: PricedExtra) => void;
+  id?: string;
 }) {
   const type = order.order_type;
   const status = order.status as OrderStatus;
   const action = nextAction(type, status);
   const TypeIcon = TYPE_ICONS[type];
+  const addable = canAddItems(status) && Boolean(onAddItem);
+  const quickButtons = type === "dine_in" && addable ? quickExtras.filter((e) => e.quickButton && e.isAvailable) : [];
 
   return (
     <article
+      id={id}
       className={cn(
-        "rounded-3xl bg-white p-4 shadow-card ring-1 ring-espresso/10 transition-shadow",
+        "scroll-mt-24 rounded-3xl bg-white p-4 shadow-card ring-1 ring-espresso/10 transition-shadow",
         highlight && "animate-bump ring-4 ring-honey",
       )}
     >
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-display text-2xl leading-none font-bold">{order.order_number}</p>
-          <p className="mt-1 text-xs text-mocha">
+          {type === "dine_in" && order.table_number ? (
+            <p className="mt-1.5 inline-block rounded-lg bg-espresso px-2.5 py-1 text-lg leading-none font-extrabold tracking-wide text-foam">
+              TABLE {order.table_number}
+            </p>
+          ) : null}
+          <p className="mt-1.5 text-sm font-semibold text-espresso">Status: {statusLabel(type, status)}</p>
+          <p className="mt-0.5 text-xs text-mocha">
             {formatTime(order.created_at)} · {elapsed(order.created_at, now)} ago
           </p>
         </div>
@@ -88,7 +143,6 @@ export function AdminOrderCard({
         >
           <TypeIcon className="size-4" />
           {ORDER_TYPE_NAMES[type]}
-          {type === "dine_in" && order.table_number ? ` · T${order.table_number}` : ""}
         </span>
       </header>
 
@@ -118,7 +172,8 @@ export function AdminOrderCard({
       </div>
 
       <div className="mt-3 border-t border-dashed border-espresso/15 pt-3">
-        <OrderItemsList order={order} />
+        <OrderItemsList order={order} added={addedItems(adjustments)} />
+        {adjustments && adjustments.length > 0 && <AddedAfterCheckout order={order} adjustments={adjustments} />}
         {order.notes && (
           <p className="mt-3 flex items-start gap-2 rounded-xl bg-honey/30 px-3 py-2 text-sm break-words">
             <StickyNote className="mt-0.5 size-4 shrink-0 text-caramel" /> {order.notes}
@@ -147,7 +202,29 @@ export function AdminOrderCard({
         </div>
       </dl>
 
-      <footer className="mt-4 flex gap-2">
+      {addable && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {quickButtons.map((extra) => (
+            <button
+              key={extra.id}
+              type="button"
+              onClick={() => onQuickAdd?.(extra)}
+              className="inline-flex h-11 items-center gap-1 rounded-full bg-oat px-4 text-sm font-semibold text-espresso transition-colors active:bg-latte/60"
+            >
+              <Plus className="size-4" /> {extra.quickButton}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={onAddItem}
+            className="inline-flex h-11 flex-1 items-center justify-center gap-1 rounded-full px-4 text-sm font-semibold whitespace-nowrap text-espresso ring-1 ring-espresso/20 transition-colors active:bg-oat"
+          >
+            <Plus className="size-4" /> Add Item
+          </button>
+        </div>
+      )}
+
+      <footer className="mt-3 flex gap-2">
         {action && (
           <button
             type="button"
@@ -170,7 +247,54 @@ export function AdminOrderCard({
           </button>
         )}
       </footer>
-      <p className="sr-only">Status: {statusLabel(type, status)}</p>
     </article>
+  );
+}
+
+/** Staff-only: what was added after checkout, by whom, and the new total to collect. */
+export function AddedAfterCheckout({
+  order,
+  adjustments,
+}: {
+  order: Pick<AdminOrder, "total" | "payment_method">;
+  adjustments: OrderAdjustment[];
+}) {
+  const added = adjustments.reduce((sum, a) => sum + Number(a.amount), 0);
+  const originalTotal = Number(adjustments[0].previous_total);
+  return (
+    <div className="mt-3 rounded-2xl bg-cream p-3 text-sm">
+      <p className="flex items-center gap-1.5 font-semibold text-espresso">
+        <History className="size-4 text-caramel" /> Added after checkout
+      </p>
+      <ul className="mt-1.5 space-y-1 text-coffee">
+        {adjustments.map((a) => (
+          <li key={a.id} className="flex justify-between gap-3">
+            <span className="min-w-0 break-words">
+              {a.description} added by {a.added_by_name} · {formatTime(a.created_at)}
+            </span>
+            <span className="shrink-0 tabular-nums">+{formatPeso(Number(a.amount))}</span>
+          </li>
+        ))}
+      </ul>
+      <dl className="mt-2 space-y-0.5 border-t border-espresso/10 pt-2">
+        <div className="flex justify-between">
+          <dt className="text-mocha">Original total</dt>
+          <dd className="tabular-nums">{formatPeso(originalTotal)}</dd>
+        </div>
+        <div className="flex justify-between font-semibold">
+          <dt>Added amount</dt>
+          <dd className="tabular-nums">{formatPeso(added)}</dd>
+        </div>
+        <div className="flex justify-between font-semibold">
+          <dt>New total</dt>
+          <dd className="tabular-nums">{formatPeso(Number(order.total))}</dd>
+        </div>
+      </dl>
+      {order.payment_method === "gcash" && (
+        <p className="mt-2 flex items-start gap-1.5 rounded-xl bg-honey/40 px-2.5 py-1.5 font-medium text-espresso">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" /> Additional payment may need to be collected.
+        </p>
+      )}
+    </div>
   );
 }

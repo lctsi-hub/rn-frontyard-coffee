@@ -23,6 +23,7 @@ import {
 import { formatPeso } from "@/lib/format";
 import { summarizeCart } from "@/lib/pricing";
 import { withTable } from "@/lib/table";
+import { newRequestId } from "@/lib/request-id";
 import { cn } from "@/lib/utils";
 import { placeOrderAction } from "@/app/order/checkout/actions";
 import type { PlaceOrderResult } from "@/lib/orders/place-order";
@@ -184,7 +185,7 @@ export function CheckoutFlow({ settings, tableFromLink }: { settings: StoreSetti
     // order is retried (e.g. after a timeout), replaced as soon as anything changes.
     const payload = JSON.stringify(order);
     if (attemptRef.current?.payload !== payload) {
-      attemptRef.current = { key: crypto.randomUUID(), payload };
+      attemptRef.current = { key: newRequestId(), payload };
     }
     const request: OrderRequest = { clientRequestId: attemptRef.current.key, ...order };
     setSubmitting(true);
