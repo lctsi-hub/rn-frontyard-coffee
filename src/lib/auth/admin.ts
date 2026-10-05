@@ -32,7 +32,4 @@ export async function requireAdmin(): Promise<AdminSession> {
   return session;
 }
 
-/** Only allow redirects back into the staff area (no open redirects). */
-export function safeNextPath(next: unknown) {
-  return typeof next === "string" && /^\/(admin|kitchen)(\/[\w\-/]*)?$/.test(next) && next !== "/admin/login" ? next : "/admin";
-}
+export { safeNextPath } from "./redirect";

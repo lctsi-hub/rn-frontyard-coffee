@@ -14,8 +14,8 @@ export default async function AdminPanelLayout({ children }: LayoutProps<"/admin
   const admin = await requireAdmin();
 
   return (
-    <div className="min-h-dvh bg-[#f3ece1]">
-      <header className="sticky top-0 z-30 border-b border-espresso/10 bg-[#f3ece1]/95 pt-[env(safe-area-inset-top)] backdrop-blur-md">
+    <div className="min-h-dvh bg-[#f3ece1] print:bg-white">
+      <header className="sticky top-0 z-30 border-b print:hidden border-espresso/10 bg-[#f3ece1]/95 pt-[env(safe-area-inset-top)] backdrop-blur-md">
         <div className="mx-auto flex max-w-[110rem] items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-3">
             <Logo className="h-9 text-espresso" />
