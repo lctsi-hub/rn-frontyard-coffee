@@ -1,26 +1,340 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ---------------------------------------------------------------------------
+   RN Frontyard Coffee design tokens
+   Warm cream surfaces, espresso text, caramel accents.
+   --------------------------------------------------------------------------- */
+@theme {
+  --color-foam: #fffbf4;
+  --color-cream: #f6eee1;
+  --color-oat: #eadcc6;
+  --color-latte: #d4b893;
+  --color-honey: #e2b06f;
+  --color-caramel: #9c5b22;
+  --color-coffee: #6b4429;
+  --color-mocha: #7a6252;
+  --color-espresso: #2a1b12;
+  --color-berry: #a3372a;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --shadow-card: 0 1px 2px rgb(42 27 18 / 0.04), 0 10px 24px -14px rgb(42 27 18 / 0.22);
+  --shadow-lift: 0 2px 4px rgb(42 27 18 / 0.08), 0 20px 40px -18px rgb(42 27 18 / 0.45);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  --animate-steam: steam 3.6s ease-out infinite;
+  --animate-drift: drift 16s ease-in-out infinite alternate;
+  --animate-twinkle: twinkle 3.4s ease-in-out infinite;
+  --animate-bob: bob 5s ease-in-out infinite;
+  --animate-fade-up: fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-shine: shine 4.5s ease-in-out infinite;
+  --animate-pop: pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+  --animate-shake: shake 0.4s ease-in-out;
+  --animate-bump: bump 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+  --animate-slide-up: slide-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-added-flash: added-flash 1.6s ease-in-out both;
+  --animate-fade-in: fade-in 0.3s ease both;
+
+  @keyframes pop {
+    from {
+      transform: scale(0.7);
+      opacity: 0.4;
+    }
+    to {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
+  @keyframes shake {
+    0%,
+    100% {
+      transform: translateX(0);
+    }
+    20%,
+    60% {
+      transform: translateX(-6px);
+    }
+    40%,
+    80% {
+      transform: translateX(6px);
+    }
+  }
+
+  @keyframes bump {
+    0%,
+    100% {
+      transform: scale(1);
+    }
+    40% {
+      transform: scale(1.04);
+    }
+  }
+
+  @keyframes slide-up {
+    from {
+      transform: translateY(120%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes added-flash {
+    0% {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    12%,
+    78% {
+      opacity: 1;
+      transform: none;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes fade-out {
+    to {
+      opacity: 0;
+    }
+  }
+
+  @keyframes sheet-up {
+    from {
+      transform: translateY(100%);
+    }
+  }
+
+  @keyframes sheet-down {
+    to {
+      transform: translateY(100%);
+    }
+  }
+
+  @keyframes steam {
+    0% {
+      transform: translateY(10px) scaleY(0.85);
+      opacity: 0;
+    }
+    25% {
+      opacity: 0.6;
+    }
+    65% {
+      opacity: 0.3;
+    }
+    100% {
+      transform: translateY(-28px) scaleY(1.15);
+      opacity: 0;
+    }
+  }
+
+  @keyframes drift {
+    from {
+      transform: translate3d(0, 0, 0) rotate(var(--rotate, 0deg));
+    }
+    to {
+      transform: translate3d(var(--dx, 10px), var(--dy, -26px), 0) rotate(calc(var(--rotate, 0deg) + 28deg));
+    }
+  }
+
+  @keyframes twinkle {
+    0%,
+    100% {
+      transform: scale(0.7) rotate(0deg);
+      opacity: 0.35;
+    }
+    50% {
+      transform: scale(1) rotate(15deg);
+      opacity: 1;
+    }
+  }
+
+  @keyframes bob {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-6px);
+    }
+  }
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes shine {
+    0%,
+    55% {
+      transform: translateX(-160%) skewX(-18deg);
+    }
+    100% {
+      transform: translateX(360%) skewX(-18deg);
+    }
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@theme inline {
+  --font-sans: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-fraunces), ui-serif, Georgia, serif;
+}
+
+/* Soft, rounded serif that echoes the logo's lettering. */
+@utility font-display {
+  font-family: var(--font-fraunces), ui-serif, Georgia, serif;
+  font-variation-settings: "SOFT" 100;
+  letter-spacing: -0.01em;
+}
+
+/* Small uppercase label, like "COFFEE" under the logo. */
+@utility eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Keeps fixed/bottom content clear of the iPhone home bar and notch. */
+@utility pb-safe {
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+}
+@utility pt-safe {
+  padding-top: max(1.5rem, env(safe-area-inset-top));
+}
+
+/* Product bottom sheet (native <dialog>, opened with showModal()). */
+@layer components {
+  .sheet {
+    --sheet-max-h: min(92dvh, 54rem);
+    margin: auto auto 0;
+    width: 100%;
+    max-width: 28rem;
+    max-height: var(--sheet-max-h);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    overflow: visible;
+  }
+  .sheet-panel {
+    max-height: var(--sheet-max-h);
+  }
+  .sheet::backdrop {
+    background: rgb(42 27 18 / 0.5);
+  }
+  .sheet[open] {
+    animation: sheet-up 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .sheet[open]::backdrop {
+    animation: fade-in 0.3s ease;
+  }
+  .sheet[data-closing] {
+    animation: sheet-down 0.24s ease-in forwards;
+  }
+  .sheet[data-closing]::backdrop {
+    animation: fade-out 0.24s ease-in forwards;
+  }
+
+  .confirm-dialog {
+    margin: auto;
+    width: calc(100% - 2rem);
+    max-width: 22rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    overflow: visible;
+  }
+  .confirm-dialog::backdrop {
+    background: rgb(42 27 18 / 0.5);
+  }
+  .confirm-dialog[open] {
+    animation: pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .confirm-dialog[open]::backdrop {
+    animation: fade-in 0.25s ease;
+  }
+}
+
+@layer base {
+  /* Stop the menu scrolling behind an open sheet. */
+  html:has(dialog[open]) {
+    overflow: hidden;
+  }
+
+  :root {
+    /* Sticky menu chrome heights, shared by the header, category bar and section anchors. */
+    --header-h: 3.5rem;
+    --category-nav-h: 3.75rem;
+    --sticky-offset: calc(var(--header-h) + var(--category-nav-h) + env(safe-area-inset-top));
+  }
+
+  html {
+    color-scheme: light;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-cream);
+    color: var(--color-espresso);
+    font-family: var(--font-sans);
+    /* Faint paper grain plus warm light from the top. */
+    background-image:
+      radial-gradient(120% 60% at 50% -10%, rgb(255 251 244 / 0.9), transparent 70%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .16 0 0 0 0 .1 0 0 0 0 .07 0 0 0 .06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    /* The glow paints once at the top; only the grain tiles. */
+    background-repeat: no-repeat, repeat;
+    background-size: 100% 100vh, auto;
+  }
+
+  ::selection {
+    background-color: var(--color-honey);
+    color: var(--color-espresso);
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-caramel);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+    /* Keep the steam visible as a still image instead of fading it out. */
+    [data-steam] {
+      animation: none !important;
+      opacity: 0.45;
+    }
+  }
 }
