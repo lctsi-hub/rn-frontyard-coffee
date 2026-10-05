@@ -57,7 +57,11 @@ export async function startTestDatabase() {
     await server.start();
     await server.createDatabase("rnfc_test");
     pool = new pg.Pool({ host: "127.0.0.1", port, user: "postgres", password: "postgres", database: "rnfc_test", max: 40 });
-    await pool.query(readFileSync(SHIM, "utf8"));
+    let shim = readFileSync(SHIM, "utf8");
+    // RNFC_NO_DEFAULT_GRANTS=1 simulates a project without Supabase's default
+    // table/function grants, proving the migration grants everything it needs.
+    if (process.env.RNFC_NO_DEFAULT_GRANTS === "1") shim = shim.replace(/^alter default privileges.*$/gm, "");
+    await pool.query(shim);
     await pool.query(readFileSync(MIGRATION, "utf8"));
   } catch (error) {
     // Never leave a server running if setup fails.

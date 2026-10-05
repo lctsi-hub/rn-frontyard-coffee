@@ -658,6 +658,16 @@ revoke all on public.admin_users, public.orders, public.order_items, public.orde
 revoke insert, update, delete, truncate on public.admin_users, public.orders, public.order_items, public.order_status_history from authenticated;
 revoke insert, update, delete, truncate on public.store_settings, public.delivery_areas from anon;
 
+-- Then grant exactly what each role needs, so this works the same whether or
+-- not the project applies Supabase's default grants. RLS still decides which
+-- rows each role can actually see or change.
+grant select on public.store_settings, public.delivery_areas to anon, authenticated;
+grant update on public.store_settings to authenticated;                 -- admins only (policy below)
+grant insert, update, delete on public.delivery_areas to authenticated; -- admins only (policies below)
+grant select on public.admin_users, public.orders, public.order_items, public.order_status_history to authenticated; -- filtered by RLS
+grant all on public.admin_users, public.store_settings, public.delivery_areas,
+             public.orders, public.order_items, public.order_status_history to service_role;
+
 -- admin_users: an admin can see the admin list; anyone signed in can see their own row.
 create policy "admin_users: read own row or as admin"
   on public.admin_users for select to authenticated
