@@ -11,6 +11,7 @@
     "test": "node --conditions=react-server --import ./tests/support/register.mjs --test tests/unit/*.test.ts",
     "test:db": "node --conditions=react-server --import ./tests/support/register.mjs --test --test-concurrency=1 tests/db/*.test.ts",
     "env:check": "node scripts/check-env.mjs",
+    "env:tracking-secret": "node scripts/set-tracking-secret.mjs",
     "brand:logo": "node scripts/prepare-logo.mjs",
     "menu:photos": "node scripts/prepare-menu-photos.mjs"
   },
