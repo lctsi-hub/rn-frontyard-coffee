@@ -1,10 +1,11 @@
-# Phase 5: Supabase real orders (design for review)
+# Phase 5: Supabase real orders
 
-**Status: Phase 5A + 5A.1 hardening.** The migration has been tested only against a throwaway local PostgreSQL 17 (`npm run test:db`). **It has not been applied to the cloud Supabase project**, and nothing in the app talks to Supabase yet.
+**Status: implemented on branch `feature/phase-5-supabase-orders` (not deployed).** The first migration below is applied to the cloud project; checkout, tracking and the admin dashboard now use it. See the README for routes and staff setup. The sections below are the original design and still describe the schema and security model.
 
-- Migration: [`supabase/migrations/20261005120000_phase5a_orders.sql`](../supabase/migrations/20261005120000_phase5a_orders.sql)
-- Server code (not yet wired into the checkout): `src/lib/supabase/`, `src/lib/orders/`
-- Tests: `tests/unit/` (`npm test`) and `tests/db/` (`npm run test:db`)
+- Migration 1 (applied): [`supabase/migrations/20261005120000_phase5a_orders.sql`](../supabase/migrations/20261005120000_phase5a_orders.sql)
+- Migration 2 (**apply by hand** in the SQL Editor, wrapped in `begin; … commit;`): [`supabase/migrations/20261006090000_menu_availability_and_realtime.sql`](../supabase/migrations/20261006090000_menu_availability_and_realtime.sql). It is additive only: a new `menu_availability` table (public read, admin-only write under RLS) and adds `orders` to the `supabase_realtime` publication so the live board updates instantly (Realtime still respects RLS, so only admins receive order rows).
+- Server code: `src/lib/supabase/`, `src/lib/orders/`, `src/lib/auth/`, Server Actions under `src/app/`
+- Tests: `tests/unit/` (`npm test`) and `tests/db/` (`npm run test:db`, applies every migration to a throwaway local PostgreSQL 17)
 
 ## 1. Tables
 
