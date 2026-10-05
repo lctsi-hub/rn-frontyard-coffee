@@ -55,6 +55,10 @@ export type StoreSettings = {
  * including the delivery minimum, fee and free-delivery rule.
  */
 export type OrderRequest = {
+  /** Random UUID per checkout attempt (idempotency key); reused only for a retry of the same order. */
+  clientRequestId: string;
+  /** Total the customer saw. Never used as a price; the order is rejected if the real total differs. */
+  expectedTotal: number;
   orderType: OrderType;
   tableNumber: number | null;
   customer: { name: string; phone: string | null };

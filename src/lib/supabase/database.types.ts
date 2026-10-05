@@ -77,8 +77,9 @@ export type Database = {
           id: string;
           order_seq: number;
           order_number: string;
-          tracking_token: string;
-          client_request_id: string | null;
+          tracking_token_hash: string;
+          client_request_id: string;
+          request_fingerprint: string;
           order_type: OrderType;
           status: OrderStatus;
           customer_name: string;
@@ -97,10 +98,9 @@ export type Database = {
           created_at: string;
           updated_at: string;
         };
-        // Orders are only created through create_order(); kept for completeness.
+        // Created only by create_order(); status changed only by update_order_status().
         Insert: never;
-        // Admins may change the status only.
-        Update: { status?: OrderStatus };
+        Update: never;
         Relationships: [
           {
             foreignKeyName: "orders_delivery_area_id_fkey";
@@ -167,14 +167,22 @@ export type Database = {
     Functions: {
       create_order: {
         Args: { p_order: Json; p_items: Json };
-        Returns: { order_id: string; order_number: string; tracking_token: string }[];
+        Returns: { order_id: string; order_number: string; total: number; is_new: boolean }[];
+      };
+      update_order_status: {
+        Args: { p_order_id: string; p_from_status: OrderStatus; p_to_status: OrderStatus };
+        Returns: { order_id: string; order_number: string; status: OrderStatus; updated_at: string }[];
       };
       get_order_tracking: {
-        Args: { p_token: string };
+        Args: { p_token_hash: string };
         Returns: Json;
       };
       is_admin: {
         Args: Record<string, never>;
+        Returns: boolean;
+      };
+      is_valid_status_transition: {
+        Args: { p_type: OrderType; p_from: OrderStatus; p_to: OrderStatus };
         Returns: boolean;
       };
     };

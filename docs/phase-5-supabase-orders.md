@@ -1,134 +1,150 @@
 # Phase 5: Supabase real orders (design for review)
 
-**Status: Phase 5A, design only.** Nothing has been run against Supabase. The migration file is written but **not applied**.
+**Status: Phase 5A + 5A.1 hardening.** The migration has been tested only against a throwaway local PostgreSQL 17 (`npm run test:db`). **It has not been applied to the cloud Supabase project**, and nothing in the app talks to Supabase yet.
 
 - Migration: [`supabase/migrations/20261005120000_phase5a_orders.sql`](../supabase/migrations/20261005120000_phase5a_orders.sql)
-- App code prepared (not yet used by any page): `src/lib/supabase/`
+- Server code (not yet wired into the checkout): `src/lib/supabase/`, `src/lib/orders/`
+- Tests: `tests/unit/` (`npm test`) and `tests/db/` (`npm run test:db`)
 
 ## 1. Tables
 
 | Table | Purpose | Key columns |
 | --- | --- | --- |
-| `orders` | One row per customer order | `id` uuid · `order_seq` identity · `order_number` "RN-0001" (generated) · `tracking_token` uuid (secret) · `client_request_id` uuid (de-duplication) · `order_type` · `status` · `customer_name` · `customer_phone` · `table_number` · `delivery_area_id` + `delivery_area_name` · `delivery_address` · `delivery_landmark` · `delivery_instructions` · `payment_method` · `notes` · `subtotal` · `delivery_fee` · `total` · `created_at` · `updated_at` |
+| `orders` | One row per customer order | `id` uuid · `order_seq` identity · `order_number` "RN-0001" (generated) · `tracking_token_hash` (SHA-256, never the raw token) · `client_request_id` (idempotency key) + `request_fingerprint` · `order_type` · `status` · `customer_name` · `customer_phone` · `table_number` · `delivery_area_id` + `delivery_area_name` (snapshot) · `delivery_address` · `delivery_landmark` · `delivery_instructions` · `payment_method` · `notes` · `subtotal` · `delivery_fee` (as charged) · `total` · `created_at` · `updated_at` |
 | `order_items` | Snapshot of each item bought | `order_id` · `line_number` · `product_key` · `product_name` · `category_name` · `size_name` · `base_price` · `options` jsonb · `addons` jsonb · `unit_price` · `quantity` · `notes` · `line_total` |
-| `order_status_history` | Timeline and audit trail | `order_id` · `from_status` · `to_status` · `changed_at` · `changed_by` (admin user, null for the customer) |
+| `order_status_history` | Timeline and audit trail | `order_id` · `from_status` · `to_status` · `changed_at` · `changed_by` (admin user; null when the customer created it) |
 | `store_settings` | Single row: ordering on/off, delivery on/off, ₱300 minimum, free from ₱500 | `ordering_enabled` · `delivery_enabled` · `delivery_min_order` · `free_delivery_from` |
 | `delivery_areas` | Barangays with their own fee and on/off | `id` ('lourdes') · `name` · `fee` · `is_active` · `sort_order` |
 | `admin_users` | Who may manage orders (Bam and staff) | `user_id` → `auth.users` · `display_name` |
 
-The enums are `order_type` (dine_in, take_out, delivery), `order_status` (received, confirmed, preparing, ready, out_for_delivery, completed, cancelled) and `payment_method` (cash, gcash, counter).
-
 The migration seeds the current rules: Lourdes ₱50, Salapungan ₱50, Batasan ₱70, Magumbali ₱70, Mandili ₱70, minimum ₱300, free from ₱500. The app keeps using `src/data/store-settings.ts` until the admin settings page exists.
 
-### Built-in data checks (the database refuses bad rows)
+### Built-in data checks
 
 - `total = subtotal + delivery_fee`, and each item's `line_total = unit_price × quantity`.
-- Dine in needs a table number. Take out and delivery need a mobile number (format `09XXXXXXXXX`).
+- Dine in needs a table number. Take out and delivery need a mobile number (`09XXXXXXXXX`).
 - Delivery needs an area, address and landmark. Only delivery orders may have a delivery fee or the status `out_for_delivery`.
-- Text length limits match the app (name 60, address 160, landmark 120, notes 200/140). Quantity is 1–20.
+- Text length limits match the app. Quantity is 1–20.
 
 ## 2. Relationships
 
 ```
 auth.users ──1:1── admin_users
-delivery_areas ──1:N── orders            (on delete RESTRICT: an area used by orders can't be deleted, only switched off)
-orders ──1:N── order_items               (on delete CASCADE)
-orders ──1:N── order_status_history      (on delete CASCADE)
-auth.users ──1:N── order_status_history.changed_by (on delete SET NULL)
-store_settings: single row, no relations
+delivery_areas ──1:N── orders            (RESTRICT: an area used by orders can only be switched off)
+orders ──1:N── order_items               (CASCADE)
+orders ──1:N── order_status_history      (CASCADE)
+auth.users ──1:N── order_status_history.changed_by (SET NULL)
 ```
 
-`order_items` does not reference a menu table. It stores the product key, name, size, options, add-ons and prices as they were at order time, so later menu changes never alter old orders.
+Orders store `delivery_area_name` and the `delivery_fee` actually charged, so renaming an area or changing its fee never alters old orders (tested).
 
 ## 3. Order numbers (RN-0001)
 
-- `order_seq` is a Postgres **identity** column. The database hands out each value exactly once, even when many customers order at the same moment, so there are no duplicates, and it can't be set from outside (`generated always`).
-- `order_number` is a **generated column**: `'RN-' || lpad(order_seq, 4, '0')`, giving RN-0001 … RN-9999, then RN-10000 (it never truncates). Nobody can edit it.
-- If an order fails to save after a number was drawn, that number is skipped (a gap). This is normal and harmless; numbers are never reused.
-- The browser never creates the number; it receives it after the save succeeds.
+- `order_seq` is an identity column: each value is handed out exactly once, even under simultaneous orders (tested with 25 parallel orders). It can't be set from outside.
+- `order_number` is generated from it (`RN-0001` … `RN-9999`, then `RN-10000`) and can't be edited.
+- A failed order may skip a number (a gap); numbers are never reused. The browser never creates the number.
 
-## 4. Saving an order in one transaction
+## 4. Never trusting the browser
 
-All writes go through **`create_order(p_order, p_items)`**, a database function. One function call is one transaction: the order row, every item row, and the first "received" history row (added by trigger) are saved together, or nothing is saved.
+The browser sends **only ids and choices**: product id, size id, option ids, add-on ids, quantity, notes, customer details, a per-attempt idempotency key, and the total it showed (as a check only).
 
-Before inserting, the function re-checks what the database can verify on its own:
+1. **Server (`src/lib/orders/build-order.ts`):** rebuilds every line from the menu, including name, category, size price, option price changes, add-on prices, unit price and subtotal. It then applies the delivery rules and computes the total. It rejects:
+   - unknown products, sizes, options or add-ons, and add-ons not offered for that product;
+   - duplicate choices, quantities outside 1–20, sold-out items or unavailable add-ons;
+   - missing required choices, and invalid details or payment method;
+   - a total different from what the customer saw (`total_changed`).
 
-- Ordering is enabled, the order has 1–50 lines, and each item's `unit_price` equals base + options + add-ons.
-- It recomputes the subtotal from the items.
-- **Delivery:** it checks delivery is on, the subtotal is at least the minimum, and the area is active. It then sets the fee itself (area fee, or ₱0 from the free threshold) and computes the total.
+   Any extra price fields the browser sends are ignored (tested).
+2. **Database (`create_order`):** re-checks what it can verify itself:
+   - item arithmetic (`unit_price = base + options + add-ons`);
+   - the subtotal;
+   - the delivery rules: minimum, active area, and a fee it **computes from its own settings**;
+   - `expected_total` must equal its own total.
 
-Errors come back as short codes (`delivery_below_minimum`, `delivery_area_invalid`, `ordering_closed`, `item_price_mismatch`, …) for the app to turn into friendly messages.
+   A fee or total the database didn't compute is rejected (tested).
 
-**No duplicate orders on double tap or retry:** each checkout attempt sends a random `client_request_id`.
+## 5. One transaction, no partial orders
 
-- If that id is already saved, the function returns the existing order instead of creating another.
-- If two identical requests arrive at the same instant, the unique index makes the second wait for the first and then return the first's order.
+`create_order(p_order, p_items)` saves the order, all items and the first `received` history row (via trigger) in one transaction. Any error means nothing is saved; this is tested with an invalid second item, after which zero orders, items or history rows remain.
 
-### Status history
+### Idempotency (duplicate guard)
 
-A trigger on `orders` writes `order_status_history` on insert (`null → received`) and on every status change (`from → to`, with the admin's user id). The app never writes history directly, so the timeline can't get out of sync with the order.
+- Each checkout attempt has a random `client_request_id`. The browser reuses it only to retry the *exact same* order and makes a new one as soon as anything changes (`CheckoutFlow.tsx`).
+- The database stores a `request_fingerprint`, a SHA-256 of everything the customer chose. If the same key comes back:
+  - same fingerprint → it returns the existing order (`is_new = false`), and the server gives back the same RN number and tracking token;
+  - different fingerprint → `idempotency_key_reused`, and the original order is untouched.
+- Simultaneous duplicates: the unique indexes make the second insert wait, then return the first's order. This is tested with 5 identical submissions at once, which produce exactly one order. It's also tested with two *different* payloads sharing one key: one wins and the other is rejected.
 
-## 5. Security (Row Level Security)
+## 6. Tracking tokens
 
-RLS is **on for every table**. Supabase's default table and function grants are narrowed explicitly, so a forgotten policy is never the only protection.
+- **Raw token:** `base64url(HMAC-SHA256(TRACKING_TOKEN_SECRET, idempotency key))`, a 256-bit value that's unguessable without the server secret. A safe retry recomputes the same token, so the customer gets the same link back.
+- **Stored:** only `SHA-256(raw token)`. The raw token goes to the customer once, after the order is saved, and is never stored or logged (tested: the raw token appears nowhere in the order row).
+- **Lookup:** the server hashes the raw token, then calls `get_order_tracking(hash)` (service role only).
+- **Response:** a safe summary of the order number, first name, order type, status, table number, payment method, items, totals and timeline. It contains **no phone, address, landmark, delivery instructions, full name or internal ids** (tested).
 
-| Who | orders / order_items / history | store_settings, delivery_areas | Functions |
+## 7. Status changes
+
+Admins change status only through **`update_order_status(order_id, expected_current_status, new_status)`**. In one transaction it:
+
+1. checks the caller is an admin;
+2. locks the order;
+3. checks the order is still in the status the admin's screen showed (otherwise `status_changed`, so two staff can't overwrite each other);
+4. checks the transition is allowed;
+5. updates the status, with the trigger writing the history row and the admin's id.
+
+Allowed transitions (`is_valid_status_transition`):
+
+| From | To |
+| --- | --- |
+| received | confirmed, cancelled |
+| confirmed | preparing, cancelled |
+| preparing | ready, cancelled; delivery also out_for_delivery |
+| ready | dine in / take out: completed, cancelled · delivery: out_for_delivery, cancelled |
+| out_for_delivery | completed |
+| completed, cancelled | (final) |
+
+A `BEFORE UPDATE` trigger enforces the same rules on **every** update, even by the service role or a manual SQL edit (tested), so `completed → preparing` can't be saved by any path. If Bam wants different cancellation rules (for example cancelling an order already out for delivery), it's a one-line change in `is_valid_status_transition`.
+
+## 8. Security (RLS + privileges)
+
+RLS is on for every table, and Supabase's default grants are narrowed explicitly. All of the following is tested against Supabase's real default grants, emulated locally.
+
+| Who | orders / items / history | settings, areas | Functions |
 | --- | --- | --- | --- |
-| **Customer** (anon key in the browser) | **No access at all**: can't list, read, insert, update or delete. | Read only (active areas only) | `get_order_tracking(token)` only |
-| **Our Next.js server** (service role, server-only) | Writes only through `create_order()` | — | `create_order()` (granted to service_role only) |
-| **Admin** (signed in, listed in `admin_users`) | Read all; update **only the `status` column**; no delete | Read all; edit settings and areas | `is_admin()`, `get_order_tracking()` |
-| Signed-in non-admin | Nothing | Read only | — |
+| **Customer** (anon key) | **No access** (permission denied for list, read by UUID, update) | Read active areas and settings; no writes | none: `create_order`, `update_order_status` and `get_order_tracking` are all denied |
+| **Next.js server** (service role, server-only) | Writes only via `create_order` | — | `create_order`, `get_order_tracking` |
+| **Signed-in non-admin** | Sees 0 orders; can't update, insert or delete | Read only (updates affect 0 rows) | `update_order_status` → `not_authorized` |
+| **Admin** (in `admin_users`) | Reads all; no direct update or delete (permission denied) | Read and edit | `update_order_status` (valid transitions only) |
 
-- **Customer tracking:** the customer gets a secret `tracking_token` (random UUID) after ordering. `get_order_tracking(token)` returns only that one order's number, status, items, totals, timeline and first name. It returns **no phone number or address**, and there is no way to list or guess other orders.
-- **Admins:** Bam signs in with Supabase Auth, then is added to `admin_users` by hand in the Supabase dashboard. The app has no "make me admin" path. Admins can change status but not prices, items or customer details (column-level grant).
-- **Functions:** `SECURITY DEFINER` functions run with `search_path = ''` and fully qualified names, which is the standard protection against search-path hijacking.
+- **Service-role key:** stored in `SUPABASE_SERVICE_ROLE_KEY`, with no `NEXT_PUBLIC_` prefix.
+  - It's used only in `src/lib/supabase/service.ts`, which has `import "server-only"`, so importing it from client code fails the build.
+  - The key is never logged; errors log only the database error code.
+  - `.env.local` is git-ignored.
+- **SECURITY DEFINER functions** use `set search_path = ''` and fully qualified names.
 
-## 6. Placing an order (Phase 5B plan)
+## 9. Placing an order (Phase 5B)
 
 ```
-Place Order (confirm dialog)
-  → Server Action placeOrder(request)          [src/app/order/checkout/actions.ts, server only]
-      1. validate shape: types, lengths, ids, client_request_id
-      2. load the menu + settings ON THE SERVER; re-price every line with
-         src/lib/pricing.ts; reject sold-out items, missing choices,
-         unknown add-ons (browser prices are never trusted)
-      3. validate checkout details with src/lib/checkout.ts (same rules as the UI)
-      4. build the snapshot (names, sizes, options, add-ons, prices)
-      5. supabase.rpc("create_order", …)  ← ONE transaction in the database
-      6. map error codes → friendly message
-  ← { ok: true, orderNumber: "RN-0042", trackingToken } | { ok: false, message }
-Browser:
-  ok    → clear the cart + this visit's checkout choices (contact details stay)
-          → "Order Received! ☕ Order #RN-0042" screen → tracking (Phase 6)
-  error → show the message; cart and form untouched; customer can retry
-          (same client_request_id, so a retry after a timeout can't duplicate)
+Place Order → Server Action → placeOrder(input)      [src/lib/orders/place-order.ts, server only]
+   not configured (no keys) → "not_connected" (today's test mode)
+   buildOrder()  → rebuild + validate from the menu (rejects bad input)
+   tracking token = HMAC(secret, idempotency key); send only its hash
+   supabase.rpc("create_order")  → one DB transaction
+   ← { orderNumber, total, trackingToken } or a friendly error message
+Browser: success → clear cart + this visit's choices → "Order Received! ☕ #RN-0042"
+         failure → message shown; cart and form untouched; retry reuses the same key
 ```
 
-The cart is cleared only after the database confirms the save. On any failure nothing is saved, thanks to the single transaction.
+## 10. Local tests
 
-### Decision needed: the server credential
+- `npm test` runs 40 unit tests for server-side order building and tracking tokens.
+- `npm run test:db` runs 40 database tests on a throwaway **PostgreSQL 17** (`embedded-postgres`, a dev dependency).
+  - The server starts on 127.0.0.1 with its data in git-ignored `.test-db/`, applies `tests/db/supabase-shim.sql` (Supabase's roles, `auth.uid()` and default grants) and then the migration, and deletes everything afterwards.
+  - It **never contacts the cloud**.
+  - It doesn't include Supabase's HTTP layer (PostgREST), which is covered when connecting in 5B.
 
-The menu still lives in code (`src/data/menu-data.ts`), not in the database, so **only our server can verify item prices**. That rules out letting the browser's anon key call `create_order` directly: anyone could call it with made-up prices.
+## 11. Known limits / later
 
-- **Option A (recommended):** a server-only `SUPABASE_SERVICE_ROLE_KEY` (Supabase's newer "secret key" also works) in `.env.local` and Vercel. No `NEXT_PUBLIC_` prefix, so it never reaches the browser, and it's used only in one `import "server-only"` file (`src/lib/supabase/admin.ts`, created in 5B). `create_order` is executable by the service role only.
-- **Option B:** no service key, with `create_order` granted to anon. This is simpler, but prices can't be verified against the menu until the menu moves into the database (the menu-management phase). Not recommended for real orders.
-
-## 7. Phase 5B steps (after approval)
-
-1. **(Recommended) Test the migration in a throwaway local Postgres** (in-memory, no Supabase), with automated checks:
-   - parallel orders get unique RN numbers;
-   - a failing item rolls back the whole order;
-   - a double submit returns one order;
-   - anon can't read orders;
-   - an admin can only change status.
-2. You apply the migration in the Supabase SQL editor (or I do it via the Supabase CLI, only with your explicit go-ahead).
-3. You add `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (+ the server key if Option A) to `.env.local`.
-4. Build `placeOrder` as above, replacing the test-mode `submitOrder`, plus the Order Received screen.
-5. Regenerate `src/lib/supabase/database.types.ts` from the real database.
-
-## 8. Known limits / later
-
-- **Spam orders:** anyone with the site can place orders (as with any no-login QR menu). Admins can cancel junk orders. A simple rate limit can be added in `placeOrder` later.
-- **Status transitions:** the database allows any status change, so Bam can fix mistakes. The admin UI (Phase 7) will offer only sensible next steps.
-- **Realtime updates** for the admin and kitchen screens will be added in Phase 7 (Supabase Realtime on `orders`, admins only).
-- `orders.delivery_fee` stores the fee actually charged. Free-delivery orders store ₱0, and the area's normal fee is still visible in `delivery_areas`.
+- **Spam orders:** anyone with the link can order (as with any no-login QR menu). Admins can cancel junk orders; a rate limit can be added in `placeOrder`.
+- **Realtime** for the admin and kitchen screens comes in Phase 7.
+- **Secret rotation:** changing `TRACKING_TOKEN_SECRET` invalidates existing tracking links (orders are unaffected).

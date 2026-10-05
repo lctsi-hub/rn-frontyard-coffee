@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ArrowRight, ChevronLeft, ShoppingBag, TriangleAlert } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMenuIndex } from "@/components/menu/MenuProvider";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useHydrated } from "@/hooks/useHydrated";
@@ -74,6 +74,7 @@ export function CheckoutFlow({ settings, tableFromLink }: { settings: StoreSetti
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<SubmitOrderResult | null>(null);
+  const attemptRef = useRef<{ key: string; payload: string } | null>(null);
 
   const summary = summarizeCart(index, cart.lines);
 
@@ -150,7 +151,8 @@ export function CheckoutFlow({ settings, tableFromLink }: { settings: StoreSetti
 
   async function placeOrder() {
     if (!orderType || !form.paymentMethod) return;
-    const request: OrderRequest = {
+    const order: Omit<OrderRequest, "clientRequestId"> = {
+      expectedTotal: total,
       orderType,
       tableNumber,
       customer: { name: form.name.trim(), phone: normalizePhMobile(form.phone) },
@@ -174,6 +176,13 @@ export function CheckoutFlow({ settings, tableFromLink }: { settings: StoreSetti
         notes,
       })),
     };
+    // Idempotency key for this checkout attempt: reused only when the exact same
+    // order is retried (e.g. after a timeout), replaced as soon as anything changes.
+    const payload = JSON.stringify(order);
+    if (attemptRef.current?.payload !== payload) {
+      attemptRef.current = { key: crypto.randomUUID(), payload };
+    }
+    const request: OrderRequest = { clientRequestId: attemptRef.current.key, ...order };
     setSubmitting(true);
     try {
       setResult(await submitOrder(request));

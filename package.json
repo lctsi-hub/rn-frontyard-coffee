@@ -8,6 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --conditions=react-server --import ./tests/support/register.mjs --test tests/unit/*.test.ts",
+    "test:db": "node --conditions=react-server --import ./tests/support/register.mjs --test --test-concurrency=1 tests/db/*.test.ts",
     "brand:logo": "node scripts/prepare-logo.mjs",
     "menu:photos": "node scripts/prepare-menu-photos.mjs"
   },
@@ -23,10 +25,13 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "embedded-postgres": "17.10.0-beta.17",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
+    "pg": "^8.23.1",
     "sharp": "^0.35.5",
     "tailwindcss": "^4",
     "typescript": "^5"

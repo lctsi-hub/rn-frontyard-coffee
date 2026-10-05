@@ -1,16 +1,19 @@
 -- =============================================================================
--- RN Frontyard Coffee — Phase 5A: real customer orders
+-- RN Frontyard Coffee — Phase 5A/5A.1: real customer orders
 --
--- STATUS: PREPARED FOR REVIEW. NOT APPLIED to any database.
--- Do not run until Phase 5B is approved. See docs/phase-5-supabase-orders.md.
+-- STATUS: PREPARED FOR REVIEW. NOT APPLIED to the cloud Supabase project.
+-- Tested only against a local, throwaway database. See docs/phase-5-supabase-orders.md.
 --
 -- Creates:
 --   types     order_type, order_status, payment_method
 --   tables    admin_users, store_settings, delivery_areas,
 --             orders, order_items, order_status_history
---   functions is_admin(), create_order(), get_order_tracking(),
---             set_updated_at(), log_order_status_change()
+--   functions is_admin(), is_valid_status_transition(),
+--             create_order()          -- service role only (our Next.js server)
+--             update_order_status()   -- signed-in admins only
+--             get_order_tracking()    -- service role only (server hashes the token)
 --   RLS       enabled on every table; customers never read/write tables directly
+--
 -- Money is numeric(10,2) pesos. Whole-peso prices today, centavos possible later.
 -- =============================================================================
 
@@ -25,7 +28,7 @@ create type public.order_status as enum (
   'received',          -- customer placed the order
   'confirmed',         -- shop accepted it
   'preparing',
-  'ready',             -- ready to serve / ready for pickup / ready for rider
+  'ready',             -- ready to serve / ready for pickup / ready for the rider
   'out_for_delivery',  -- delivery orders only
   'completed',
   'cancelled'
@@ -63,8 +66,8 @@ create table public.admin_users (
 
 comment on table public.admin_users is 'Signed-in users allowed to manage orders and settings.';
 
--- True when the signed-in user is an admin. SECURITY DEFINER so RLS policies can
--- call it without granting anyone read access to admin_users.
+-- True when the signed-in user is an admin. SECURITY DEFINER so policies and
+-- functions can call it without anyone being able to read admin_users.
 create function public.is_admin()
 returns boolean
 language sql
@@ -142,14 +145,16 @@ create table public.orders (
                    'RN-' || case when order_seq < 10000 then lpad(order_seq::text, 4, '0') else order_seq::text end
                  ) stored unique,
 
-  -- Secret, unguessable id given only to the customer who placed the order.
-  -- It is the key to their tracking page; it is never listed anywhere.
-  tracking_token uuid not null unique default gen_random_uuid(),
+  -- SHA-256 (hex) of the customer's tracking token. The raw token is given to
+  -- the customer once and never stored, so a database leak can't be used to
+  -- open anyone's tracking page.
+  tracking_token_hash text not null unique check (tracking_token_hash ~ '^[0-9a-f]{64}$'),
 
-  -- Random id the browser sends with each checkout attempt. If the same attempt
-  -- arrives twice (double tap, network retry), the existing order is returned
-  -- instead of creating a duplicate.
-  client_request_id uuid unique,
+  -- Idempotency: one key per checkout attempt, sent by the browser. A retry with
+  -- the same key and the same order returns the existing order; the same key
+  -- with a different order is rejected (request_fingerprint differs).
+  client_request_id   uuid not null unique,
+  request_fingerprint text not null check (request_fingerprint ~ '^[0-9a-f]{64}$'),
 
   order_type     public.order_type not null,
   status         public.order_status not null default 'received',
@@ -158,7 +163,8 @@ create table public.orders (
   customer_phone text check (customer_phone ~ '^09[0-9]{9}$'),   -- stored as 09171234567
   table_number   smallint check (table_number between 1 and 99),
 
-  -- Delivery. The area name is copied so old orders keep it if an area is renamed.
+  -- Delivery. The area name and the fee actually charged are stored on the order,
+  -- so an old order never changes if the area is renamed or its fee is edited.
   delivery_area_id      text references public.delivery_areas (id) on update cascade on delete restrict,
   delivery_area_name    text,
   delivery_address      text check (char_length(delivery_address) <= 160),
@@ -188,7 +194,7 @@ create table public.orders (
   constraint orders_out_for_delivery_type  check (status <> 'out_for_delivery' or order_type = 'delivery')
 );
 
-comment on table public.orders is 'Customer QR orders. Created only through create_order().';
+comment on table public.orders is 'Customer QR orders. Created only through create_order(); status changed only through update_order_status().';
 
 create index orders_status_created_idx on public.orders (status, created_at desc);
 create index orders_created_idx on public.orders (created_at desc);
@@ -232,9 +238,59 @@ comment on table public.order_items is 'Snapshot of each ordered item; never re-
 
 
 -- -----------------------------------------------------------------------------
--- 7. Status history (customer timeline + admin audit trail).
---    Written only by the trigger below, so it can never drift from orders.status.
+-- 7. Status rules and history
 -- -----------------------------------------------------------------------------
+
+-- Allowed status changes. completed and cancelled are final.
+--   received   → confirmed | cancelled
+--   confirmed  → preparing | cancelled
+--   preparing  → ready | cancelled            (+ out_for_delivery for delivery)
+--   ready      → completed | cancelled        (dine in / take out)
+--   ready      → out_for_delivery | cancelled (delivery)
+--   out_for_delivery → completed
+create function public.is_valid_status_transition(
+  p_type public.order_type,
+  p_from public.order_status,
+  p_to   public.order_status
+)
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select case p_from
+    when 'received'  then p_to in ('confirmed', 'cancelled')
+    when 'confirmed' then p_to in ('preparing', 'cancelled')
+    when 'preparing' then p_to in ('ready', 'cancelled')
+                          or (p_type = 'delivery' and p_to = 'out_for_delivery')
+    when 'ready'     then p_to = 'cancelled'
+                          or (p_type <> 'delivery' and p_to = 'completed')
+                          or (p_type = 'delivery' and p_to = 'out_for_delivery')
+    when 'out_for_delivery' then p_to = 'completed'
+    else false
+  end;
+$$;
+
+-- Enforced on every update, whoever makes it (admin function, service role or
+-- a manual SQL edit), so an impossible jump like completed → preparing can't
+-- be saved by any path.
+create function public.enforce_status_transition()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.status is distinct from old.status
+     and not public.is_valid_status_transition(old.order_type, old.status, new.status) then
+    raise exception 'invalid_status_transition';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger orders_enforce_status_transition
+  before update of status on public.orders
+  for each row execute function public.enforce_status_transition();
 
 create table public.order_status_history (
   id          bigint generated always as identity primary key,
@@ -247,6 +303,7 @@ create table public.order_status_history (
 
 create index order_status_history_order_idx on public.order_status_history (order_id, changed_at);
 
+-- Written only by this trigger, so the history can never drift from orders.status.
 create function public.log_order_status_change()
 returns trigger
 language plpgsql
@@ -276,67 +333,93 @@ create trigger orders_log_status
 --    Runs as ONE transaction: the order, every item and the first 'received'
 --    history row are saved together, or (on any error) nothing is saved.
 --
---    Called only by our Next.js server (service role), after it has re-priced
---    every item from the menu. The database re-checks what it can verify on
---    its own: item arithmetic, subtotal, delivery rules and fee, totals.
+--    Called only by our Next.js server with the service role, after it has
+--    rebuilt every item and price from the menu (the browser sends ids only).
+--    The database then re-checks everything it can verify on its own: item
+--    arithmetic, subtotal, delivery rules and fee, and that the total equals
+--    the total the customer was shown (expected_total).
 --
---    p_order: {client_request_id, order_type, customer_name, customer_phone, table_number,
+--    p_order: {client_request_id, tracking_token_hash, expected_total,
+--              order_type, customer_name, customer_phone, table_number,
 --              delivery_area_id, delivery_address, delivery_landmark,
 --              delivery_instructions, payment_method, notes}
 --    p_items: [{product_key, product_name, category_name, size_name, base_price,
 --               options:[{group,name,price_delta}], addons:[{key,name,price}],
 --               unit_price, quantity, notes}]
 --
---    Errors are raised with a short code in the message (e.g. 'delivery_below_minimum')
---    so the server can show the customer a clear explanation.
+--    Returns the order id, number and total, and is_new = false when the same
+--    request was already saved (safe retry).
+--    Errors are raised with a short code as the message (e.g.
+--    'delivery_below_minimum') so the server can explain them to the customer.
 -- -----------------------------------------------------------------------------
 
 create function public.create_order(p_order jsonb, p_items jsonb)
-returns table (order_id uuid, order_number text, tracking_token uuid)
+returns table (order_id uuid, order_number text, total numeric, is_new boolean)
 language plpgsql
 security definer
 set search_path = ''
 as $$
 #variable_conflict use_column
 declare
-  v_settings  public.store_settings%rowtype;
-  v_area      public.delivery_areas%rowtype;
-  v_request   uuid;
-  v_conflict  text;
-  v_type      public.order_type;
-  v_item      jsonb;
-  v_line      integer := 0;
-  v_qty       integer;
-  v_base      numeric(10,2);
-  v_unit      numeric(10,2);
-  v_extras    numeric(10,2);
-  v_subtotal  numeric(10,2) := 0;
-  v_fee       numeric(10,2) := 0;
-  v_order     public.orders%rowtype;
+  v_settings    public.store_settings%rowtype;
+  v_area        public.delivery_areas%rowtype;
+  v_existing    record;
+  v_request     uuid;
+  v_token_hash  text;
+  v_fingerprint text;
+  v_expected    numeric;
+  v_conflict    text;
+  v_type        public.order_type;
+  v_item        jsonb;
+  v_line        integer := 0;
+  v_qty         integer;
+  v_base        numeric(10,2);
+  v_unit        numeric(10,2);
+  v_extras      numeric(10,2);
+  v_subtotal    numeric(10,2) := 0;
+  v_fee         numeric(10,2) := 0;
+  v_order       public.orders%rowtype;
 begin
-  select * into v_settings from public.store_settings where id;
-  if not found or not v_settings.ordering_enabled then
-    raise exception 'ordering_closed';
-  end if;
-
   if jsonb_typeof(p_order) is distinct from 'object' then
     raise exception 'invalid_order';
-  end if;
-
-  -- Same checkout attempt already saved? Return that order instead of a duplicate.
-  v_request := nullif(p_order ->> 'client_request_id', '')::uuid;
-  if v_request is not null then
-    return query
-      select o.id, o.order_number, o.tracking_token from public.orders o where o.client_request_id = v_request;
-    if found then
-      return;
-    end if;
   end if;
   if jsonb_typeof(p_items) is distinct from 'array' or jsonb_array_length(p_items) = 0 then
     raise exception 'empty_order';
   end if;
   if jsonb_array_length(p_items) > 50 then
     raise exception 'too_many_items';
+  end if;
+
+  v_request    := nullif(p_order ->> 'client_request_id', '')::uuid;
+  v_token_hash := p_order ->> 'tracking_token_hash';
+  v_expected   := (p_order ->> 'expected_total')::numeric;
+  if v_request is null or v_token_hash is null or v_token_hash !~ '^[0-9a-f]{64}$' or v_expected is null then
+    raise exception 'invalid_order';
+  end if;
+
+  -- Fingerprint of everything the customer chose (not the key/token), used to
+  -- make sure a retried key carries exactly the same order.
+  v_fingerprint := encode(
+    sha256(convert_to(jsonb_build_array(p_order - 'client_request_id' - 'tracking_token_hash', p_items)::text, 'UTF8')),
+    'hex'
+  );
+
+  -- Safe retry: same key already saved?
+  select o.id, o.order_number, o.total, o.request_fingerprint, o.tracking_token_hash
+    into v_existing
+    from public.orders o
+    where o.client_request_id = v_request;
+  if found then
+    if v_existing.request_fingerprint <> v_fingerprint or v_existing.tracking_token_hash <> v_token_hash then
+      raise exception 'idempotency_key_reused';
+    end if;
+    return query select v_existing.id, v_existing.order_number, v_existing.total, false;
+    return;
+  end if;
+
+  select * into v_settings from public.store_settings where id;
+  if not found or not v_settings.ordering_enabled then
+    raise exception 'ordering_closed';
   end if;
 
   v_type := (p_order ->> 'order_type')::public.order_type;
@@ -383,38 +466,56 @@ begin
     end;
   end if;
 
+  -- The customer must be charged exactly what they saw.
+  if v_expected <> v_subtotal + v_fee then
+    raise exception 'total_changed';
+  end if;
+
   begin
-  insert into public.orders (
-    client_request_id, order_type, customer_name, customer_phone, table_number,
-    delivery_area_id, delivery_area_name, delivery_address, delivery_landmark, delivery_instructions,
-    payment_method, notes, subtotal, delivery_fee, total
-  ) values (
-    v_request,
-    v_type,
-    btrim(p_order ->> 'customer_name'),
-    nullif(btrim(p_order ->> 'customer_phone'), ''),
-    case when v_type = 'dine_in' then (p_order ->> 'table_number')::smallint end,
-    case when v_type = 'delivery' then v_area.id end,
-    case when v_type = 'delivery' then v_area.name end,
-    case when v_type = 'delivery' then nullif(btrim(p_order ->> 'delivery_address'), '') end,
-    case when v_type = 'delivery' then nullif(btrim(p_order ->> 'delivery_landmark'), '') end,
-    case when v_type = 'delivery' then nullif(btrim(p_order ->> 'delivery_instructions'), '') end,
-    (p_order ->> 'payment_method')::public.payment_method,
-    coalesce(btrim(p_order ->> 'notes'), ''),
-    v_subtotal,
-    v_fee,
-    v_subtotal + v_fee
-  )
-  returning * into v_order;
+    insert into public.orders (
+      tracking_token_hash, client_request_id, request_fingerprint,
+      order_type, customer_name, customer_phone, table_number,
+      delivery_area_id, delivery_area_name, delivery_address, delivery_landmark, delivery_instructions,
+      payment_method, notes, subtotal, delivery_fee, total
+    ) values (
+      v_token_hash,
+      v_request,
+      v_fingerprint,
+      v_type,
+      btrim(p_order ->> 'customer_name'),
+      nullif(btrim(p_order ->> 'customer_phone'), ''),
+      case when v_type = 'dine_in' then (p_order ->> 'table_number')::smallint end,
+      case when v_type = 'delivery' then v_area.id end,
+      case when v_type = 'delivery' then v_area.name end,
+      case when v_type = 'delivery' then nullif(btrim(p_order ->> 'delivery_address'), '') end,
+      case when v_type = 'delivery' then nullif(btrim(p_order ->> 'delivery_landmark'), '') end,
+      case when v_type = 'delivery' then nullif(btrim(p_order ->> 'delivery_instructions'), '') end,
+      (p_order ->> 'payment_method')::public.payment_method,
+      coalesce(btrim(p_order ->> 'notes'), ''),
+      v_subtotal,
+      v_fee,
+      v_subtotal + v_fee
+    )
+    returning * into v_order;
   exception when unique_violation then
-    -- A parallel call with the same client_request_id committed first: the
-    -- unique index made this insert wait for it, so its order is visible now.
+    -- A parallel call with the same key committed first: the unique index made
+    -- this insert wait for it, so that order is visible now. Both calls carry
+    -- the same key AND the same token hash, so either unique index can be the
+    -- one that trips. Same payload → return it; different payload → reject.
     get stacked diagnostics v_conflict = constraint_name;
-    if v_request is null or v_conflict is distinct from 'orders_client_request_id_key' then
+    if v_conflict is null or v_conflict not in ('orders_client_request_id_key', 'orders_tracking_token_hash_key') then
       raise;
     end if;
-    return query
-      select o.id, o.order_number, o.tracking_token from public.orders o where o.client_request_id = v_request;
+    select o.id, o.order_number, o.total, o.request_fingerprint, o.tracking_token_hash
+      into v_existing
+      from public.orders o
+      where o.client_request_id = v_request;
+    if not found
+       or v_existing.request_fingerprint <> v_fingerprint
+       or v_existing.tracking_token_hash <> v_token_hash then
+      raise exception 'idempotency_key_reused';
+    end if;
+    return query select v_existing.id, v_existing.order_number, v_existing.total, false;
     return;
   end;
 
@@ -440,17 +541,66 @@ begin
     );
   end loop;
 
-  return query select v_order.id, v_order.order_number, v_order.tracking_token;
+  return query select v_order.id, v_order.order_number, v_order.total, true;
 end;
 $$;
 
 
 -- -----------------------------------------------------------------------------
--- 9. get_order_tracking(): what a customer sees on their tracking page.
---    Needs the secret tracking token; returns no phone number or address.
+-- 9. update_order_status(): the only way to change an order's status.
+--
+--    Signed-in admins only. Locks the order row, checks the order still has the
+--    status the admin was looking at (so two staff can't overwrite each other),
+--    checks the change is allowed, updates it; the trigger writes the history
+--    row with the admin's user id. All in one transaction.
 -- -----------------------------------------------------------------------------
 
-create function public.get_order_tracking(p_token uuid)
+create function public.update_order_status(
+  p_order_id    uuid,
+  p_from_status public.order_status,
+  p_to_status   public.order_status
+)
+returns table (order_id uuid, order_number text, status public.order_status, updated_at timestamptz)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+#variable_conflict use_column
+declare
+  v_order public.orders%rowtype;
+begin
+  if not public.is_admin() then
+    raise exception 'not_authorized' using errcode = '42501';
+  end if;
+
+  select * into v_order from public.orders o where o.id = p_order_id for update;
+  if not found then
+    raise exception 'order_not_found';
+  end if;
+  if v_order.status <> p_from_status then
+    raise exception 'status_changed';
+  end if;
+  if not public.is_valid_status_transition(v_order.order_type, v_order.status, p_to_status) then
+    raise exception 'invalid_status_transition';
+  end if;
+
+  update public.orders o set status = p_to_status where o.id = p_order_id
+    returning * into v_order;
+
+  return query select v_order.id, v_order.order_number, v_order.status, v_order.updated_at;
+end;
+$$;
+
+
+-- -----------------------------------------------------------------------------
+-- 10. get_order_tracking(): the customer's tracking page data.
+--
+--     Our server hashes the raw token and calls this with the hash (service
+--     role only). Returns a safe summary: no phone, address, landmark,
+--     delivery instructions or full name.
+-- -----------------------------------------------------------------------------
+
+create function public.get_order_tracking(p_token_hash text)
 returns jsonb
 language sql
 stable
@@ -458,18 +608,16 @@ security definer
 set search_path = ''
 as $$
   select jsonb_build_object(
-    'order_number',       o.order_number,
-    'order_type',         o.order_type,
-    'status',             o.status,
-    'customer_first_name', split_part(o.customer_name, ' ', 1),
-    'table_number',       o.table_number,
-    'delivery_area_name', o.delivery_area_name,
-    'payment_method',     o.payment_method,
-    'subtotal',           o.subtotal,
-    'delivery_fee',       o.delivery_fee,
-    'total',              o.total,
-    'created_at',         o.created_at,
-    'updated_at',         o.updated_at,
+    'order_number',        o.order_number,
+    'customer_first_name', split_part(btrim(o.customer_name), ' ', 1),
+    'order_type',          o.order_type,
+    'status',              o.status,
+    'table_number',        o.table_number,
+    'payment_method',      o.payment_method,
+    'subtotal',            o.subtotal,
+    'delivery_fee',        o.delivery_fee,
+    'total',               o.total,
+    'created_at',          o.created_at,
     'items', coalesce((
       select jsonb_agg(jsonb_build_object(
                'name', i.product_name, 'size', i.size_name, 'options', i.options,
@@ -478,25 +626,23 @@ as $$
              ) order by i.line_number)
       from public.order_items i where i.order_id = o.id
     ), '[]'::jsonb),
-    'history', coalesce((
+    'timeline', coalesce((
       select jsonb_agg(jsonb_build_object('status', h.to_status, 'at', h.changed_at) order by h.changed_at, h.id)
       from public.order_status_history h where h.order_id = o.id
     ), '[]'::jsonb)
   )
   from public.orders o
-  where o.tracking_token = p_token;
+  where o.tracking_token_hash = p_token_hash;
 $$;
 
 
 -- -----------------------------------------------------------------------------
--- 10. Row Level Security + privileges
+-- 11. Row Level Security + privileges
 --
---  Customers (anon role) get NO direct access to order tables. They can only:
---    - place an order through our server (create_order, service role only)
---    - read one order with its secret token (get_order_tracking)
---    - read active delivery areas and store settings (checkout needs them)
---  Admins (signed in + listed in admin_users) can read all orders and change
---  only the status column. Nobody can delete orders through the API.
+--  Customers (anon role) get NO direct access to order tables, and can't call
+--  the order functions: everything goes through our server.
+--  Admins (signed in + listed in admin_users) can read orders and change status
+--  only through update_order_status(). Nobody can delete orders via the API.
 -- -----------------------------------------------------------------------------
 
 alter table public.admin_users          enable row level security;
@@ -509,9 +655,8 @@ alter table public.order_status_history enable row level security;
 -- Supabase grants anon/authenticated full table privileges by default; narrow
 -- them so a missing policy is never the only thing standing in the way.
 revoke all on public.admin_users, public.orders, public.order_items, public.order_status_history from anon;
-revoke insert, update, delete on public.admin_users, public.orders, public.order_items, public.order_status_history from authenticated;
-grant update (status) on public.orders to authenticated;               -- admins: status only (RLS below)
-revoke insert, update, delete on public.store_settings, public.delivery_areas from anon;
+revoke insert, update, delete, truncate on public.admin_users, public.orders, public.order_items, public.order_status_history from authenticated;
+revoke insert, update, delete, truncate on public.store_settings, public.delivery_areas from anon;
 
 -- admin_users: an admin can see the admin list; anyone signed in can see their own row.
 create policy "admin_users: read own row or as admin"
@@ -540,16 +685,11 @@ create policy "delivery_areas: admins delete"
   on public.delivery_areas for delete to authenticated
   using ((select public.is_admin()));
 
--- orders: admins read all and update status. No insert/delete policies at all.
+-- orders / items / history: admins read. No insert, update or delete policies:
+-- writes happen only inside create_order(), update_order_status() and triggers.
 create policy "orders: admins read"
   on public.orders for select to authenticated
   using ((select public.is_admin()));
-create policy "orders: admins update status"
-  on public.orders for update to authenticated
-  using ((select public.is_admin())) with check ((select public.is_admin()));
-
--- order_items / order_status_history: admins read only (writes happen in
--- create_order() and the status trigger).
 create policy "order_items: admins read"
   on public.order_items for select to authenticated
   using ((select public.is_admin()));
@@ -562,11 +702,18 @@ create policy "order_status_history: admins read"
 revoke all on function public.create_order(jsonb, jsonb) from public, anon, authenticated;
 grant execute on function public.create_order(jsonb, jsonb) to service_role;
 
-revoke all on function public.get_order_tracking(uuid) from public;
-grant execute on function public.get_order_tracking(uuid) to anon, authenticated, service_role;
+revoke all on function public.get_order_tracking(text) from public, anon, authenticated;
+grant execute on function public.get_order_tracking(text) to service_role;
+
+revoke all on function public.update_order_status(uuid, public.order_status, public.order_status) from public, anon;
+grant execute on function public.update_order_status(uuid, public.order_status, public.order_status) to authenticated;
 
 revoke all on function public.is_admin() from public;
 grant execute on function public.is_admin() to anon, authenticated, service_role;
 
+revoke all on function public.is_valid_status_transition(public.order_type, public.order_status, public.order_status) from public;
+grant execute on function public.is_valid_status_transition(public.order_type, public.order_status, public.order_status) to anon, authenticated, service_role;
+
 revoke all on function public.log_order_status_change() from public, anon, authenticated;
+revoke all on function public.enforce_status_transition() from public, anon, authenticated;
 revoke all on function public.set_updated_at() from public, anon, authenticated;
