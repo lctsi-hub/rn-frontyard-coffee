@@ -9,7 +9,8 @@ QR orders will go straight into this app's own admin dashboard, where Bam (the o
 - **Phase 1 (done):** welcome page, branding, table QR support.
 - **Phase 2–3 (done):** real menu, product customisation sheet, local cart, floating cart button, cart page.
 - **Phase 4 (done, test mode):** checkout covering Dine In / Take Out / Delivery, customer details, delivery fee, payment method, order summary and confirmation. **Place Order doesn't send anything yet.** It shows a "test mode" notice until the order database is connected (next phase).
-- Not connected: database (Supabase), admin dashboard, order tracking.
+- **Phase 5A (design only, nothing applied):** Supabase order schema, security and order flow. See [docs/phase-5-supabase-orders.md](docs/phase-5-supabase-orders.md). The migration in `supabase/migrations/` has **not** been run.
+- Not connected yet: database (Supabase), admin dashboard, order tracking.
 
 ## Run it
 
