@@ -128,10 +128,12 @@ export function DetailsStep({
                 ) : (
                   <>
                     <p>{deliveryFeeSummary(settings)}.</p>
-                    <p className="font-semibold text-caramel">
-                      Add {formatPeso(untilFree)} more for FREE delivery (orders{" "}
-                      {formatPeso(settings.delivery.freeDeliveryFrom)} and above).
-                    </p>
+                    {untilFree !== null && settings.delivery.freeDeliveryFrom !== null && (
+                      <p className="font-semibold text-caramel">
+                        Add {formatPeso(untilFree)} more for FREE delivery (orders{" "}
+                        {formatPeso(settings.delivery.freeDeliveryFrom)} and above).
+                      </p>
+                    )}
                   </>
                 )}
               </div>

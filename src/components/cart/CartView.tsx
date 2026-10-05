@@ -206,17 +206,18 @@ function DeliveryNote({ settings, subtotal }: { settings: StoreSettings; subtota
   const { minimumOrder, freeDeliveryFrom } = settings.delivery;
   const untilFree = amountUntilFreeDelivery(settings, subtotal);
 
-  let nudge: string;
+  let nudge: string | null = null;
   if (deliveryBlockReason(settings, subtotal)) nudge = `Add ${formatPeso(minimumOrder - subtotal)} more to unlock delivery.`;
-  else if (untilFree > 0) nudge = `Add ${formatPeso(untilFree)} more for FREE delivery.`;
-  else nudge = "Your order qualifies for FREE delivery.";
+  else if (untilFree !== null && untilFree > 0) nudge = `Add ${formatPeso(untilFree)} more for FREE delivery.`;
+  else if (untilFree === 0) nudge = "Your order qualifies for FREE delivery.";
 
   return (
     <div className="mt-3 border-t border-dashed border-espresso/15 pt-3 text-xs text-mocha">
       <p>
-        Delivery: {formatPeso(minimumOrder)} minimum order · FREE for orders {formatPeso(freeDeliveryFrom)} and above.
+        Delivery: {formatPeso(minimumOrder)} minimum order
+        {freeDeliveryFrom !== null && <> · FREE for orders {formatPeso(freeDeliveryFrom)} and above</>}.
       </p>
-      <p className="mt-1 font-semibold text-caramel">{nudge}</p>
+      {nudge && <p className="mt-1 font-semibold text-caramel">{nudge}</p>}
     </div>
   );
 }

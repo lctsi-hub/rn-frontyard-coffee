@@ -141,6 +141,18 @@ export type Database = {
           },
         ];
       };
+      menu_availability: {
+        Row: {
+          item_type: "product" | "addon";
+          item_key: string;
+          is_available: boolean;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: { item_type: "product" | "addon"; item_key: string; is_available: boolean };
+        Update: { is_available?: boolean };
+        Relationships: [];
+      };
       order_status_history: {
         Row: {
           id: number;

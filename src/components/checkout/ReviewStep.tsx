@@ -34,7 +34,7 @@ export function ReviewStep({
   form: CheckoutForm;
   tableNumber: number | null;
   delivery: DeliveryQuote | null;
-  freeDeliveryFrom: number;
+  freeDeliveryFrom: number | null;
   items: Array<{ line: CartLine; priced: PricedItem | null }>;
   subtotal: number;
   total: number;
@@ -132,7 +132,7 @@ export function ReviewStep({
             />
           )}
           {type === "delivery" && delivery?.isFree && (
-            <p className="text-xs text-caramel">Free delivery on orders {formatPeso(freeDeliveryFrom)} and above.</p>
+            <p className="text-xs text-caramel">{freeDeliveryFrom !== null && <>Free delivery on orders {formatPeso(freeDeliveryFrom)} and above.</>}</p>
           )}
           <div className="flex items-baseline justify-between pt-2">
             <span className="font-semibold">Grand total</span>

@@ -32,7 +32,10 @@ function deliveryNote(settings: StoreSettings, subtotal: number, blocked: boolea
     return `Add ${formatPeso(short)} more to unlock delivery.`;
   }
   if (qualifiesForFreeDelivery(settings, subtotal)) return "FREE delivery on this order!";
-  return `${deliveryFeeSummary(settings)}. Add ${formatPeso(amountUntilFreeDelivery(settings, subtotal))} more for FREE delivery.`;
+  const untilFree = amountUntilFreeDelivery(settings, subtotal);
+  return untilFree === null
+    ? `${deliveryFeeSummary(settings)}.`
+    : `${deliveryFeeSummary(settings)}. Add ${formatPeso(untilFree)} more for FREE delivery.`;
 }
 
 export function OrderTypeStep({

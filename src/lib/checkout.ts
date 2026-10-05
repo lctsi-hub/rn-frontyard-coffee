@@ -39,17 +39,19 @@ export function findDeliveryArea(settings: StoreSettings, areaId: string | null)
 }
 
 /** The normal fee for an area, before the free-delivery rule. */
-export function areaDeliveryFee(settings: StoreSettings, area: DeliveryArea) {
-  return settings.delivery.baseFee + (area.isFarArea ? settings.delivery.farAreaSurcharge : 0);
+export function areaDeliveryFee(_settings: StoreSettings, area: DeliveryArea) {
+  return area.fee;
 }
 
 export function qualifiesForFreeDelivery(settings: StoreSettings, subtotal: number) {
-  return subtotal >= settings.delivery.freeDeliveryFrom;
+  const from = settings.delivery.freeDeliveryFrom;
+  return from !== null && subtotal >= from;
 }
 
-/** How much more the customer needs to add for free delivery (0 if already free). */
+/** How much more the customer needs to add for free delivery (0 if already free, null if there's no free delivery). */
 export function amountUntilFreeDelivery(settings: StoreSettings, subtotal: number) {
-  return Math.max(0, settings.delivery.freeDeliveryFrom - subtotal);
+  const from = settings.delivery.freeDeliveryFrom;
+  return from === null ? null : Math.max(0, from - subtotal);
 }
 
 export type DeliveryQuote = {
@@ -78,13 +80,15 @@ export function deliveryBlockReason(settings: StoreSettings, subtotal: number): 
   return null;
 }
 
-/** "₱50 delivery fee (₱70 for farther areas)", built from the settings. */
+/** "₱50–₱70 delivery fee depending on your barangay", built from the active areas. */
 export function deliveryFeeSummary(settings: StoreSettings) {
-  const { baseFee, farAreaSurcharge } = settings.delivery;
-  const hasFar = activeDeliveryAreas(settings).some((a) => a.isFarArea) && farAreaSurcharge > 0;
-  return hasFar
-    ? `${formatPeso(baseFee)} delivery fee (${formatPeso(baseFee + farAreaSurcharge)} for farther areas)`
-    : `${formatPeso(baseFee)} delivery fee`;
+  const fees = activeDeliveryAreas(settings).map((a) => a.fee);
+  if (fees.length === 0) return "Delivery fee depends on your barangay";
+  const min = Math.min(...fees);
+  const max = Math.max(...fees);
+  return min === max
+    ? `${formatPeso(min)} delivery fee`
+    : `${formatPeso(min)}–${formatPeso(max)} delivery fee depending on your barangay`;
 }
 
 export function paymentMethodsFor(settings: StoreSettings, orderType: OrderType | null): PaymentMethod[] {

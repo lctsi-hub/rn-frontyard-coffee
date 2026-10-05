@@ -1,18 +1,14 @@
 // =============================================================================
-// STORE SETTINGS (temporary local file)
-// Becomes the admin "Settings" page later, so Bam can change these without a
-// redeploy. Until then, edit here. All amounts are whole pesos.
+// STORE SETTINGS — defaults and code-only settings
 //
-// DELIVERY RULES (store is in Lourdes, Candaba, Pampanga)
-//   enabled            false → customers can only choose Dine In or Take Out
-//   baseFee            fee for nearby areas
-//   farAreaSurcharge   added to baseFee for areas with isFarArea: true
-//   minimumOrder       delivery only allowed when the subtotal is at least this
-//   freeDeliveryFrom   subtotal at or above this → delivery is FREE (any area)
-//   areas              barangays we deliver to; isActive: false hides one
+// Ordering on/off and all DELIVERY rules now live in the database and are
+// edited by Bam in Admin → Settings (tables store_settings + delivery_areas).
+// The values below are only the fallback used when the database can't be
+// reached (and in tests); they match the database's initial values:
+//   Lourdes ₱50 · Salapungan ₱50 · Batasan ₱70 · Magumbali ₱70 · Mandili ₱70
+//   delivery minimum ₱300 · free delivery from ₱500
 //
-// Examples with the values below:
-//   ₱320 to Lourdes → ₱50   ₱320 to Mandili → ₱70   ₱500+ anywhere → FREE   below ₱300 → no delivery
+// Payment methods and GCash details are still edited here.
 // =============================================================================
 import type { StoreSettings } from "@/types/order";
 
@@ -23,16 +19,14 @@ export const localStoreSettings: StoreSettings = {
 
   delivery: {
     enabled: true,
-    baseFee: 50,
-    farAreaSurcharge: 20,
     minimumOrder: 300,
     freeDeliveryFrom: 500,
     areas: [
-      { id: "lourdes", name: "Lourdes", isFarArea: false, isActive: true },
-      { id: "salapungan", name: "Salapungan", isFarArea: false, isActive: true },
-      { id: "batasan", name: "Batasan", isFarArea: true, isActive: true },
-      { id: "magumbali", name: "Magumbali", isFarArea: true, isActive: true },
-      { id: "mandili", name: "Mandili", isFarArea: true, isActive: true },
+      { id: "lourdes", name: "Lourdes", fee: 50, isActive: true },
+      { id: "salapungan", name: "Salapungan", fee: 50, isActive: true },
+      { id: "batasan", name: "Batasan", fee: 70, isActive: true },
+      { id: "magumbali", name: "Magumbali", fee: 70, isActive: true },
+      { id: "mandili", name: "Mandili", fee: 70, isActive: true },
     ],
   },
 

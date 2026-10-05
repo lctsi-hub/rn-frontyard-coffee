@@ -18,8 +18,8 @@ export type PaymentMethod = {
 export type DeliveryArea = {
   id: string;
   name: string;
-  /** Farther areas pay delivery.farAreaSurcharge on top of the base fee. */
-  isFarArea: boolean;
+  /** Normal delivery fee for this area, in pesos (before the free-delivery rule). */
+  fee: number;
   isActive: boolean;
 };
 
@@ -30,14 +30,10 @@ export type StoreSettings = {
   };
   delivery: {
     enabled: boolean;
-    /** Fee for nearby areas, in pesos. */
-    baseFee: number;
-    /** Added to the base fee for areas marked isFarArea. */
-    farAreaSurcharge: number;
     /** Delivery is only allowed when the order subtotal is at least this. */
     minimumOrder: number;
-    /** Orders with a subtotal of at least this get free delivery. */
-    freeDeliveryFrom: number;
+    /** Orders with a subtotal of at least this get free delivery; null = never free. */
+    freeDeliveryFrom: number | null;
     areas: DeliveryArea[];
   };
   paymentMethods: PaymentMethod[];
