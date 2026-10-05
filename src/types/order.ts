@@ -1,0 +1,65 @@
+// Checkout + store-setting shapes. They mirror the planned database tables
+// (store_settings, delivery_areas, payment_methods, orders).
+import type { ItemSelection } from "@/lib/pricing";
+
+export type OrderType = "dine_in" | "take_out" | "delivery";
+
+export type PaymentMethodId = "cash" | "gcash" | "counter";
+
+export type PaymentMethod = {
+  id: PaymentMethodId;
+  label: string;
+  description: string;
+  enabled: boolean;
+  /** Order types this method can be used for. */
+  orderTypes: OrderType[];
+};
+
+export type DeliveryArea = {
+  id: string;
+  name: string;
+  /** Farther areas pay delivery.farAreaSurcharge on top of the base fee. */
+  isFarArea: boolean;
+  isActive: boolean;
+};
+
+export type StoreSettings = {
+  ordering: {
+    /** Turn off to stop accepting QR orders (e.g. when closed). */
+    enabled: boolean;
+  };
+  delivery: {
+    enabled: boolean;
+    /** Fee for nearby areas, in pesos. */
+    baseFee: number;
+    /** Added to the base fee for areas marked isFarArea. */
+    farAreaSurcharge: number;
+    /** Delivery is only allowed when the order subtotal is at least this. */
+    minimumOrder: number;
+    /** Orders with a subtotal of at least this get free delivery. */
+    freeDeliveryFrom: number;
+    areas: DeliveryArea[];
+  };
+  paymentMethods: PaymentMethod[];
+  gcash: {
+    accountName: string | null;
+    accountNumber: string | null;
+    /** Path of an uploaded GCash QR image, e.g. "/payments/gcash-qr.png". */
+    qrImageUrl: string | null;
+  };
+};
+
+/**
+ * What the browser sends when placing an order: ids and customer details only.
+ * The server looks up names and prices itself and recomputes every total,
+ * including the delivery minimum, fee and free-delivery rule.
+ */
+export type OrderRequest = {
+  orderType: OrderType;
+  tableNumber: number | null;
+  customer: { name: string; phone: string | null };
+  delivery: { areaId: string; address: string; landmark: string; instructions: string } | null;
+  paymentMethod: PaymentMethodId;
+  notes: string;
+  items: ItemSelection[];
+};
