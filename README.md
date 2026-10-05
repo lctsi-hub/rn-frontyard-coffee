@@ -11,6 +11,7 @@ QR orders go straight into this app's own admin dashboard, where Bam (the owner)
 - **Database migrations** (`supabase/migrations/`, applied in order in the Supabase SQL Editor):
   1. `20261005120000_phase5a_orders.sql` (orders, settings, security): **applied**.
   2. `20261006090000_menu_availability_and_realtime.sql` (sold-out switches + instant live board): **still to be applied by hand.** Until then the menu uses the code defaults, the admin Menu page shows a notice, and the live board refreshes every 30 seconds instead of instantly.
+  3. `20261006120000_add_items_to_orders.sql` (staff add items to an existing order, audit trail, kitchen "NEW" marks): **still to be applied by hand, after migration 2.** Until then "+ Add Item" answers that the database update is needed; nothing else changes.
 - Not built: editing menu names, prices or photos from the dashboard (still done in `src/data/menu-data.ts`).
 
 ## Run it
@@ -34,12 +35,12 @@ With `dev:phone`, open `http://<this-computer's-LAN-IP>:3000` on your phone. Win
 | `/order/received` | Customers | "Order Received! ☕" with the order number and **Track My Order** |
 | `/track/<token>` | Customers | Order status (private link, refreshes every 15 seconds) |
 | `/admin/login` | Staff | Sign in (no sign-up; accounts are created in Supabase) |
-| `/admin` | Staff | Live orders board, today's totals, new-order sound alert |
+| `/admin` | Staff | Live orders board, Active Tables, + Add Item / + Rice / + Kimchi, today's totals, new-order sound alert |
 | `/admin/orders` | Staff | Order history: date, type and status filters, search by RN number, totals |
 | `/admin/menu` | Staff | Available / Sold out switches for every product and add-on |
 | `/admin/settings` | Staff | Online ordering ON/OFF, delivery ON/OFF, minimum order, free delivery, barangay fees |
 | `/admin/qr` | Staff | Printable QR codes for the shop and each table (PNG/SVG download) |
-| `/kitchen` | Staff | Big-card kitchen screen: Confirm → Start Preparing → Ready |
+| `/kitchen` | Staff | Big-card kitchen screen: Confirm → Start Preparing → Ready, NEW / ADDED items with Got it |
 
 `?table=5` is kept on every customer link. Table numbers 1–99 are accepted; anything else is ignored. Opening checkout from a table link pre-selects Dine In for that table. Every `/admin` and `/kitchen` page requires a signed-in user listed in `admin_users`.
 
@@ -61,14 +62,27 @@ To remove access: `delete from public.admin_users where user_id = '<UID>';` (and
 
 Staff can cancel an order (after a confirmation) up to Ready, but not once it is out for delivery or completed. The database enforces these rules, so the buttons can't skip steps.
 
+## Adding items to an existing order
+
+A customer at Table 5 asks for one more rice: staff add it to the **same** order (same RN number, same table), no new order.
+
+- **Where:** "+ Add Item" on every open order (live board, kitchen screen, order history). Open dine-in orders also have one-tap **+ Rice** and **+ Kimchi** buttons, which ask "Add Extra Rice ×1? to Table 5 / RN-0012" first. The **Active Tables** box on the live board lists each table's open order; tap one to jump to it.
+- **When:** while the order is Received, Confirmed, Preparing or Ready. Never after it is out for delivery, completed or cancelled.
+- **Prices:** the sheet only previews the price. The server rebuilds the item from the menu (sold-out switches included), and the database adds it with its own price snapshot, updates subtotal / total (delivery becomes free if the new subtotal reaches the free-delivery amount), and records "Extra Rice ×1 added by Bam" with the time. Earlier items are never changed. A double tap adds the item once.
+- **Quick Extras** (Extra Rice, Kimchi, Egg, Cheese Sauce) are listed in `quickExtras` in `src/data/menu-data.ts`. Each takes its price and Sold out state from an add-on, so change the add-on's price to change the extra's.
+- **Payment:** the order card shows "Added after checkout" with the original total, added amount and new total, so staff know what to collect. GCash orders also show "Additional payment may need to be collected." Nothing is marked as paid automatically.
+- **Kitchen:** added items show **NEW · ADDED** and a red "New items added" bar (with a chime when sound is on) until the kitchen taps **Got it** or the order moves to its next status.
+- **Customer tracking** shows the added item and new total after the page refreshes. It never shows which staff member added it.
+
 ## Editing the menu
 
 `src/data/menu-data.ts` holds the menu from the shop's printed boards (copies in `assets/menu-boards/`). The top of the file explains each field: prices, sizes (16oz/22oz, Solo/Duo), add-ons, featured, photos. Day-to-day "sold out" is switched on **/admin/menu** instead (after migration 2 is applied).
 
 **Product photos:**
 
-- `src/data/menu-photos.ts` sets which photo each product shows, one line per product. Lines marked `exact` are photos of that item; the rest are the closest stand-in (same type or colour).
-- The originals are in `assets/photos/`, the crops are listed in `scripts/prepare-menu-photos.mjs`, and `npm run menu:photos` writes them to `public/menu/`.
+- `src/data/menu-photos.ts` sets which photo each product shows, one line per product. Lines marked `exact` are photos of that item; the rest are the closest stand-in (same kind of drink or dish).
+- **Studio photos** (white background) are cut from the product photo sheets in `assets/menu-sheets/` by `npm run menu:sheets` (`scripts/prepare-menu-sheets.mjs`): label removed, product centred, 640×640, written to `public/menu/<label-name>.jpg`. To use a new sheet, replace the file and adjust its rows/names at the top of the script.
+- A few **real shop photos** (strawberry milk, cheese sticks, cheese-overload sandwiches, pork enoki rice, the menu banner) are cropped from `assets/photos/` by `npm run menu:photos`.
 
 ## Store settings (delivery, payment)
 
