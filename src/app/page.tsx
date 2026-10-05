@@ -1,69 +1,68 @@
-import Image from "next/image";
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
+import { Logo } from "@/components/brand/Logo";
+import { Sparkle } from "@/components/brand/Sparkle";
+import { AmbientBackground } from "@/components/landing/AmbientBackground";
+import { SteamingCup } from "@/components/landing/SteamingCup";
+import { isDeliveryAvailable } from "@/lib/checkout";
+import { getStoreSettings } from "@/lib/settings";
+import { STORE, STORE_LOCATION_LABEL } from "@/lib/store";
+import { parseTableParam, withTable } from "@/lib/table";
 
-export default function Home() {
+export default async function LandingPage({ searchParams }: PageProps<"/">) {
+  const table = parseTableParam((await searchParams).table);
+  const settings = await getStoreSettings();
+  const orderTypes = isDeliveryAvailable(settings) ? "Dine in · Take out · Delivery" : "Dine in · Take out";
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <main className="relative flex min-h-dvh flex-col overflow-hidden">
+      <AmbientBackground />
+
+      <div className="pt-safe pb-safe relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col px-6">
+        <header className="flex animate-fade-up flex-col items-center text-espresso">
+          <h1>
+            <Logo className="w-44 sm:w-52" />
+            <span className="sr-only">{STORE.name}</span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+        </header>
+
+        <div className="flex flex-1 items-center justify-center py-4">
+          <SteamingCup className="w-full max-w-[17rem] animate-fade-up [animation-delay:150ms]" />
+        </div>
+
+        <section className="flex flex-col items-center text-center">
+          <p className="font-display animate-fade-up text-[2rem] leading-[1.1] font-semibold text-balance [animation-delay:300ms]">
+            Freshly brewed, right in your front yard.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+          <p className="mt-3 max-w-xs animate-fade-up text-[0.95rem] leading-relaxed text-mocha [animation-delay:400ms]">
+            Browse the menu and order from your phone. No sign-up needed.
+          </p>
+
+          {table && (
+            <p className="mt-5 inline-flex animate-fade-up items-center gap-2 rounded-full bg-foam px-4 py-2 text-sm font-semibold shadow-card ring-1 ring-espresso/5 [animation-delay:450ms]">
+              <Sparkle className="size-3.5 text-caramel" />
+              Ordering for Table {table}
+            </p>
+          )}
+
+          <Link
+            href={withTable("/order", table)}
+            className="group relative isolate mt-7 flex h-16 w-full animate-fade-up items-center justify-center gap-3 overflow-hidden rounded-full bg-espresso pr-2 pl-8 text-lg font-semibold text-foam shadow-lift transition-transform duration-150 ease-out [animation-delay:550ms] active:scale-[0.97]"
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 left-0 -z-10 w-1/3 animate-shine bg-linear-to-r from-transparent via-foam/20 to-transparent"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+            <span className="flex-1 text-left">Start Your Order</span>
+            <span className="grid size-12 place-items-center rounded-full bg-foam text-espresso transition-transform duration-200 group-hover:translate-x-0.5 group-active:translate-x-1">
+              <ArrowRight className="size-5" strokeWidth={2.5} />
+            </span>
+          </Link>
+
+          <p className="eyebrow mt-5 animate-fade-up text-mocha [animation-delay:650ms]">{orderTypes}</p>
+          <p className="mt-2 animate-fade-up text-xs text-mocha/80 [animation-delay:700ms]">{STORE_LOCATION_LABEL}</p>
+        </section>
+      </div>
+    </main>
   );
 }
